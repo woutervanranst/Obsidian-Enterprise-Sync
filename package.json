@@ -1,0 +1,22 @@
+{
+  "name": "obsidian-entra-sync",
+  "version": "1.0.0",
+  "description": "Self-hosted enterprise Obsidian sync with Entra ID authentication, SharePoint/OneDrive per-vault sharing, 3-way conflict merge, and version history.",
+  "private": true,
+  "scripts": {
+    "dev": "esbuild src/main.ts --bundle --external:obsidian --format=cjs --watch --outfile=main.js",
+    "build": "esbuild src/main.ts --bundle --external:obsidian --format=cjs --outfile=main.js",
+    "test": "node --test test/*.test.mjs",
+    "test:docker": "node test/docker-e2e.mjs"
+  },
+  "dependencies": {
+    "node-diff3": "^3.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "esbuild": "^0.20.0",
+    "obsidian": "latest",
+    "playwright": "^1.42.0",
+    "typescript": "^5.3.3"
+  }
+}
