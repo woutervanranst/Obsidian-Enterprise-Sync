@@ -1,0 +1,60 @@
+name: Release Obsidian Plugin (BRAT)
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck and run unit tests
+        run: |
+          npx tsc --noEmit
+          npm test
+
+      - name: Build plugin bundle
+        run: npm run build
+
+      - name: Read version from manifest.json
+        id: manifest
+        run: |
+          VERSION=$(node -p "require('./manifest.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Create or update GitHub Release for BRAT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.manifest.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f "$VERSION" "$GITHUB_SHA"
+          git push origin "$VERSION" --force
+
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            gh release upload "$VERSION" main.js manifest.json styles.css --clobber
+            gh release edit "$VERSION" --title "v$VERSION" --latest
+          else
+            gh release create "$VERSION" main.js manifest.json styles.css \
+              --title "v$VERSION" \
+              --notes "Automated Obsidian Enterprise Sync release for BRAT and manual installation (commit ${GITHUB_SHA::7})." \
+              --latest
+          fi
