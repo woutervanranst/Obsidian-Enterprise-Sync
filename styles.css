@@ -35,3 +35,9 @@
 .entra-sync-status-bar {
   cursor: pointer;
 }
+
+.entra-sync-log-viewer {
+  max-height: 260px;
+  user-select: text;
+}
+

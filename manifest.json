@@ -1,7 +1,7 @@
 {
   "id": "obsidian-entra-sync",
   "name": "Enterprise Sync (Entra ID & SharePoint)",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "minAppVersion": "1.5.0",
   "description": "Self-hosted enterprise Obsidian sync with Entra ID authentication, SharePoint per-vault sharing, 3-way conflict merge, and version history.",
   "author": "Wouter Van Ranst",

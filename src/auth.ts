@@ -1,4 +1,5 @@
 import { requestUrl } from "obsidian";
+import { SyncLogger, defaultLogger } from "./logger";
 
 export interface AuthTokens {
   accessToken: string;
@@ -40,7 +41,10 @@ function base64UrlEncode(buffer: ArrayBuffer): string {
 export class EntraPkceAuth {
   private codeVerifier: string | null = null;
 
-  constructor(private config: AuthConfig) {}
+  constructor(
+    private config: AuthConfig,
+    private logger: SyncLogger = defaultLogger
+  ) {}
 
   getScopes(): string {
     const scopes = ["openid", "profile", "offline_access", "User.Read", "Files.ReadWrite.All"];
@@ -86,14 +90,29 @@ export class EntraPkceAuth {
       scope: this.getScopes(),
     });
 
+    const tokenUrl = `https://login.microsoftonline.com/${this.config.tenantId}/oauth2/v2.0/token`;
+    this.logger.info(`Exchanging PKCE authorization code at ${tokenUrl}`);
+
     const res = await requestUrl({
-      url: `https://login.microsoftonline.com/${this.config.tenantId}/oauth2/v2.0/token`,
+      url: tokenUrl,
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: body.toString(),
+      throw: false,
     });
 
     this.codeVerifier = null;
+    if (res.status !== 200 || !res.json?.access_token) {
+      const errDetail =
+        res.json?.error_description || res.json?.error || res.text || `HTTP ${res.status}`;
+      this.logger.error(`PKCE token exchange failed (${res.status})`, errDetail);
+      throw new Error(`PKCE token exchange failed (${res.status}): ${errDetail}`);
+    }
+
+    this.logger.info("PKCE token exchange succeeded", {
+      hasRefreshToken: Boolean(res.json.refresh_token),
+      expiresInSec: res.json.expires_in,
+    });
     return this.enrichWithProfile({
       accessToken: res.json.access_token,
       refreshToken: res.json.refresh_token ?? "",
@@ -200,9 +219,15 @@ export class EntraPkceAuth {
         tokens.userDisplayName = meRes.json.displayName;
         tokens.userEmail = meRes.json.mail || meRes.json.userPrincipalName;
         tokens.userId = meRes.json.id;
+        this.logger.info("Loaded user profile from /v1.0/me", {
+          userDisplayName: tokens.userDisplayName,
+          userEmail: tokens.userEmail,
+        });
+      } else {
+        this.logger.warn(`GET /v1.0/me returned status ${meRes.status}`, meRes.text);
       }
-    } catch {
-      // Fallback: decode JWT claims if /me fails
+    } catch (err) {
+      this.logger.warn("Failed to fetch /v1.0/me profile, falling back to JWT claims", String(err));
     }
     if (!tokens.userEmail || !tokens.userDisplayName) {
       try {
@@ -222,11 +247,25 @@ export class EntraPkceAuth {
     return tokens;
   }
 
-  async refresh(tokens: AuthTokens): Promise<AuthTokens> {
-    if (Date.now() < tokens.expiresAt || !tokens.refreshToken) return tokens;
+  async refresh(tokens: AuthTokens, force = false): Promise<AuthTokens> {
+    if (!force && Date.now() < tokens.expiresAt) {
+      return tokens;
+    }
 
-    const authorityTenant =
-      this.config.tenantId === "common" ? "organizations" : this.config.tenantId;
+    if (!tokens.refreshToken) {
+      this.logger.warn(
+        "Token refresh requested but no refreshToken is present. Please sign in again."
+      );
+      if (force) {
+        throw new Error("No refresh token available. Please click 'Sign in' again.");
+      }
+      return tokens;
+    }
+
+    // Keep configured tenantId ("common" works for both Consumer OneDrive MSA & Entra ID refresh tokens!)
+    const authorityTenant = (this.config.tenantId || "common").trim();
+    const tokenUrl = `https://login.microsoftonline.com/${authorityTenant}/oauth2/v2.0/token`;
+    this.logger.info(`Refreshing OAuth2 access token via ${tokenUrl}`, { force });
 
     const body = new URLSearchParams({
       client_id: this.config.clientId,
@@ -236,7 +275,7 @@ export class EntraPkceAuth {
     });
 
     const res = await requestUrl({
-      url: `https://login.microsoftonline.com/${authorityTenant}/oauth2/v2.0/token`,
+      url: tokenUrl,
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: body.toString(),
@@ -244,14 +283,27 @@ export class EntraPkceAuth {
     });
 
     if (res.status !== 200 || !res.json?.access_token) {
+      const errMsg =
+        res.json?.error_description ||
+        res.json?.error ||
+        res.text ||
+        `HTTP ${res.status}`;
+      this.logger.error(`Token refresh failed (${res.status}) at ${tokenUrl}`, errMsg);
+      if (force || Date.now() >= tokens.expiresAt) {
+        throw new Error(`Token refresh failed (${res.status}): ${errMsg}`);
+      }
       return tokens;
     }
 
-    return {
+    const updated: AuthTokens = {
       ...tokens,
       accessToken: res.json.access_token,
       refreshToken: res.json.refresh_token ?? tokens.refreshToken,
       expiresAt: Date.now() + (res.json.expires_in ?? 3600) * 1000 - 60_000,
     };
+    this.logger.info("Access token refreshed successfully", {
+      expiresAt: new Date(updated.expiresAt).toISOString(),
+    });
+    return updated;
   }
 }

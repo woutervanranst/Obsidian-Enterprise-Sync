@@ -111,7 +111,7 @@ test("End-to-end Microsoft Entra ID Auth + SharePoint/OneDrive Graph Vault Shari
     // Load the esbuild-compiled plugin bundle or source modules via esbuild register
     const esbuild = await import("esbuild");
     const authBuild = await esbuild.build({
-      entryPoints: ["src/auth.ts", "src/graph.ts", "src/sync.ts"],
+      entryPoints: ["src/auth.ts", "src/graph.ts", "src/sync.ts", "src/logger.ts"],
       bundle: true,
       format: "cjs",
       platform: "node",
@@ -131,6 +131,7 @@ test("End-to-end Microsoft Entra ID Auth + SharePoint/OneDrive Graph Vault Shari
     const { EntraPkceAuth } = loadBundled("auth.js");
     const { GraphVaultClient } = loadBundled("graph.js");
     const { CollaborativeSyncEngine } = loadBundled("sync.js");
+    const { SyncLogger } = loadBundled("logger.js");
 
     const clientId = process.env.ENTRA_CLIENT_ID || "ada87c12-a404-484b-a7dc-10c54beb2d7d";
     const pass = process.env.ENTRA_TEST_PASSWORD;
@@ -315,6 +316,37 @@ test("End-to-end Microsoft Entra ID Auth + SharePoint/OneDrive Graph Vault Shari
       "1.0"
     );
     assert.equal(v1Text, initialNote);
+
+    // 11. Verify HTTP 401 automatic token refresh retry + SyncLogger diagnostics + downloadUrl 401 fallback
+    const testLogger = new SyncLogger();
+    let forceRefreshCalled = false;
+    const refreshingGraph = new GraphVaultClient(
+      async (forceRefresh = false) => {
+        if (forceRefresh) {
+          forceRefreshCalled = true;
+          return aliceTokens.accessToken;
+        }
+        // Return an invalid/expired token on first attempt so the server responds with 401
+        return "expired-non-jwt-token";
+      },
+      () => baseUrl,
+      testLogger
+    );
+
+    const deltaWithAutoRefresh = await refreshingGraph.fetchDelta(aliceVaultTarget);
+    assert.equal(forceRefreshCalled, true, "Should automatically force token refresh after 401");
+    assert.ok(deltaWithAutoRefresh.items.length > 0);
+    assert.ok(
+      testLogger.formatText().includes("returned 401 Unauthorized"),
+      "SyncLogger should record the 401 warning and token refresh retry"
+    );
+
+    // Verify downloadFileText fallback when @microsoft.graph.downloadUrl returns 401
+    const fallbackResult = await aliceGraph.downloadFileText(
+      aliceVaultTarget.driveId,
+      itemId
+    );
+    assert.equal(fallbackResult.text, mergedContent);
   } finally {
     await mockGraph.stop();
   }

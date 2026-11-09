@@ -1,6 +1,7 @@
 import { TFile, TFolder, Vault } from "obsidian";
 import { diff3Merge } from "node-diff3";
 import { DeltaDriveItem, GraphVaultClient, RemoteVaultTarget } from "./graph";
+import { SyncLogger, defaultLogger } from "./logger";
 
 export interface SyncFileState {
   itemId: string;
@@ -33,7 +34,8 @@ export class CollaborativeSyncEngine {
     private target: RemoteVaultTarget,
     private store: SyncStore,
     private saveStore: () => Promise<void>,
-    private onStatusChange?: (statusText: string) => void
+    private onStatusChange?: (statusText: string) => void,
+    private logger: SyncLogger = defaultLogger
   ) {}
 
   isPathSuppressed(path: string): boolean {
@@ -49,6 +51,11 @@ export class CollaborativeSyncEngine {
     }
     this.isSyncing = true;
     this.onStatusChange?.("Syncing...");
+    this.logger.info(`Starting syncAll for vault '${this.target.name}'`, {
+      driveId: this.target.driveId,
+      rootItemId: this.target.rootItemId,
+      hasDeltaLink: Boolean(this.store.deltaLink),
+    });
 
     const summary: SyncSummary = { pulled: 0, pushed: 0, merged: 0, conflicts: 0 };
     try {
@@ -65,9 +72,11 @@ export class CollaborativeSyncEngine {
         summary.conflicts += pushStats.conflicts;
       }
 
+      this.logger.info("Completed syncAll successfully", summary);
       this.onStatusChange?.(`Synced (${new Date().toLocaleTimeString()})`);
       return summary;
     } catch (err) {
+      this.logger.error("syncAll failed", String(err));
       this.onStatusChange?.("Sync Error");
       throw err;
     } finally {

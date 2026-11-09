@@ -4,6 +4,7 @@ import { GraphVaultClient, RemoteVaultTarget } from "./graph";
 import { CollaborativeSyncEngine, SyncStore } from "./sync";
 import { VersionHistoryModal } from "./historyModal";
 import { ShareVaultModal } from "./shareModal";
+import { SyncLogger, defaultLogger } from "./logger";
 
 export interface EntraSyncSettings {
   tenantId: string;
@@ -29,6 +30,7 @@ const DEFAULT_SETTINGS: EntraSyncSettings = {
 
 export default class EntraSharePointSyncPlugin extends Plugin {
   settings: EntraSyncSettings = DEFAULT_SETTINGS;
+  logger: SyncLogger = defaultLogger;
   auth!: EntraPkceAuth;
   graph!: GraphVaultClient;
   syncEngine?: CollaborativeSyncEngine;
@@ -107,7 +109,8 @@ export default class EntraSharePointSyncPlugin extends Plugin {
               await this.syncEngine?.pushMarkdownFile(abstractFile);
               this.updateStatusBar("Synced");
             } catch (err) {
-              console.error("Entra Sync auto-push failed:", err);
+              this.logger.error(`Auto-push failed for ${abstractFile.path}`, String(err));
+              this.updateStatusBar("Sync Error");
             }
           }, 800);
         }
@@ -142,6 +145,15 @@ export default class EntraSharePointSyncPlugin extends Plugin {
       name: "View Note Version History (SharePoint / OneDrive)",
       callback: () => {
         this.openActiveFileHistory();
+      },
+    });
+
+    // Command: View Sync Diagnostic Logs
+    this.addCommand({
+      id: "entra-view-sync-logs",
+      name: "View Sync Diagnostic Logs (SharePoint / OneDrive)",
+      callback: () => {
+        new SyncLogsModal(this.app, this).open();
       },
     });
 
@@ -231,20 +243,27 @@ export default class EntraSharePointSyncPlugin extends Plugin {
   }
 
   reinitClients() {
-    this.auth = new EntraPkceAuth({
-      tenantId: this.settings.tenantId,
-      clientId: this.settings.clientId,
-      includeSitesScope: this.settings.includeSitesScope,
-    });
+    this.auth = new EntraPkceAuth(
+      {
+        tenantId: this.settings.tenantId,
+        clientId: this.settings.clientId,
+        includeSitesScope: this.settings.includeSitesScope,
+      },
+      this.logger
+    );
 
     this.graph = new GraphVaultClient(
-      async () => {
+      async (forceRefresh = false) => {
         if (!this.settings.tokens) throw new Error("Not signed in");
-        this.settings.tokens = await this.auth.refresh(this.settings.tokens);
+        this.settings.tokens = await this.auth.refresh(
+          this.settings.tokens,
+          forceRefresh
+        );
         await this.saveSettings();
         return this.settings.tokens.accessToken;
       },
-      () => this.settings.graphBaseUrl || "https://graph.microsoft.com/v1.0"
+      () => this.settings.graphBaseUrl || "https://graph.microsoft.com/v1.0",
+      this.logger
     );
 
     if (this.settings.activeVault) {
@@ -254,7 +273,8 @@ export default class EntraSharePointSyncPlugin extends Plugin {
         this.settings.activeVault,
         this.settings.syncStore,
         () => this.saveSettings(),
-        (status) => this.updateStatusBar(status)
+        (status) => this.updateStatusBar(status),
+        this.logger
       );
     } else {
       this.syncEngine = undefined;
@@ -604,5 +624,105 @@ class EntraSyncSettingTab extends PluginSettingTab {
           );
       }
     }
+
+    // Troubleshooting & Sync Logs section (always visible)
+    containerEl.createEl("h3", { text: "Troubleshooting & Sync Logs" });
+
+    if (this.plugin.settings.tokens) {
+      const expDate = new Date(this.plugin.settings.tokens.expiresAt).toLocaleString();
+      const hasRefresh = Boolean(this.plugin.settings.tokens.refreshToken);
+      new Setting(containerEl)
+        .setName("OAuth2 Token & Delta Diagnostics")
+        .setDesc(
+          `Access token expires: ${expDate} • Refresh token present: ${
+            hasRefresh ? "Yes" : "No"
+          }`
+        )
+        .addButton((btn) =>
+          btn.setButtonText("Force Token Refresh").onClick(async () => {
+            if (!this.plugin.settings.tokens) return;
+            try {
+              this.plugin.settings.tokens = await this.plugin.auth.refresh(
+                this.plugin.settings.tokens,
+                true
+              );
+              await this.plugin.saveSettings();
+              new Notice("Access token refreshed successfully!");
+              this.display();
+            } catch (err) {
+              new Notice(`Token refresh failed: ${String(err)}`);
+              this.display();
+            }
+          })
+        )
+        .addButton((btn) =>
+          btn.setButtonText("Reset Delta & Resync").onClick(async () => {
+            this.plugin.settings.syncStore.deltaLink = undefined;
+            await this.plugin.saveSettings();
+            this.plugin.logger.info("Cleared cached deltaLink; triggering full delta sync");
+            await this.plugin.triggerManualSync();
+            this.display();
+          })
+        );
+    }
+
+    const logBoxContainer = containerEl.createDiv({ cls: "entra-sync-card" });
+    const logPre = logBoxContainer.createEl("pre", {
+      cls: "entra-sync-version-preview entra-sync-log-viewer",
+      text: this.plugin.logger.formatText(),
+    });
+
+    new Setting(containerEl)
+      .setName("Diagnostic Log Actions")
+      .setDesc("Also logged to Developer Console (Ctrl+Shift+I / Cmd+Opt+I) with prefix [EntraSync]")
+      .addButton((btn) =>
+        btn.setButtonText("Refresh Logs").onClick(() => {
+          logPre.setText(this.plugin.logger.formatText());
+        })
+      )
+      .addButton((btn) =>
+        btn.setButtonText("Copy Logs").onClick(async () => {
+          await navigator.clipboard.writeText(this.plugin.logger.formatText());
+          new Notice("Copied Entra Sync diagnostic logs to clipboard.");
+        })
+      )
+      .addButton((btn) =>
+        btn.setButtonText("Clear Logs").onClick(() => {
+          this.plugin.logger.clear();
+          logPre.setText(this.plugin.logger.formatText());
+        })
+      );
+  }
+}
+
+class SyncLogsModal extends Modal {
+  constructor(app: App, private plugin: EntraSharePointSyncPlugin) {
+    super(app);
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.createEl("h2", { text: "Entra Sync Diagnostic Logs" });
+    const pre = contentEl.createEl("pre", {
+      cls: "entra-sync-version-preview entra-sync-log-viewer",
+      text: this.plugin.logger.formatText(),
+    });
+
+    new Setting(contentEl)
+      .addButton((btn) =>
+        btn.setButtonText("Refresh").onClick(() => {
+          pre.setText(this.plugin.logger.formatText());
+        })
+      )
+      .addButton((btn) =>
+        btn
+          .setButtonText("Copy to Clipboard")
+          .setCta()
+          .onClick(async () => {
+            await navigator.clipboard.writeText(this.plugin.logger.formatText());
+            new Notice("Copied diagnostic logs to clipboard.");
+          })
+      );
   }
 }
