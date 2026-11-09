@@ -1,4 +1,4 @@
-# OneDrive, Enterprise SharePoint + Teams Sync
+# OneDrive + Enterprise SharePoint + Teams Sync
 
 Self-hosted / zero-backend collaborative vault synchronization and multi-user sharing plugin powered by **Microsoft Entra ID** and **Microsoft Graph (SharePoint Online, Teams & OneDrive)**.
 
@@ -17,7 +17,7 @@ Stuur onderstaand bericht naar jullie **Global / Entra ID Administrator**:
 
 ---
 
-**Onderwerp:** Aanvraag Entra ID App Registration voor OneDrive, Enterprise SharePoint + Teams Sync (Microsoft Graph)
+**Onderwerp:** Aanvraag Entra ID App Registration voor OneDrive + Enterprise SharePoint + Teams Sync (Microsoft Graph)
 
 Hoi [Naam],
 
@@ -25,7 +25,7 @@ Voor het veilig samenwerken in Obsidian-vaults bovenop onze eigen SharePoint / O
 
 Zou je hiervoor een **App Registration** in Microsoft Entra ID willen aanmaken met de volgende instellingen?
 
-1. **Naam:** `OneDrive, Enterprise SharePoint + Teams Sync`
+1. **Naam:** `OneDrive + Enterprise SharePoint + Teams Sync`
 2. **Supported account types:** *Accounts in any organizational directory and personal Microsoft accounts* (of *Single tenant* voor alleen onze organisatie)
 3. **Authentication (Platform configuratie):**
    - Platform: **Mobile and desktop applications** (Public client / Native)
@@ -63,7 +63,7 @@ Because the plugin addresses every vault via `/v1.0/drives/{driveId}/items/{root
 Install directly from the official Obsidian Community Plugins directory:
 
 1. Open **Settings → Community plugins** in Obsidian.
-2. Select **Browse** and search for **OneDrive, Enterprise SharePoint + Teams Sync**.
+2. Select **Browse** and search for **OneDrive + Enterprise SharePoint + Teams Sync**.
 3. Click **Install**, then **Enable**.
 
 ---
