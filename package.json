@@ -1,7 +1,7 @@
 {
-  "name": "obsidian-entra-sync",
-  "version": "1.0.3",
-  "description": "Self-hosted enterprise Obsidian sync with Entra ID authentication, SharePoint/OneDrive per-vault sharing, 3-way conflict merge, and version history.",
+  "name": "entra-sharepoint-sync",
+  "version": "1.0.4",
+  "description": "Collaborative vault sync, per-vault sharing, 3-way merge, and version history backed by Microsoft Entra ID, SharePoint, and OneDrive.",
   "private": true,
   "scripts": {
     "dev": "esbuild src/main.ts --bundle --external:obsidian --format=cjs --watch --outfile=main.js",

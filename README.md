@@ -62,7 +62,7 @@ Because the plugin addresses every vault via `/v1.0/drives/{driveId}/items/{root
 1. Install the **BRAT** community plugin in Obsidian (`Obsidian42 - BRAT`).
 2. Open **Settings → BRAT → Add Beta plugin**.
 3. Enter this repository: `woutervanranst/Obsidian-Enterprise-Sync`
-4. Click **Add Plugin** and enable **Enterprise Sync (Entra ID & SharePoint)** under **Settings → Community plugins**.
+4. Click **Add Plugin** and enable **OneDrive, Enterprise SharePoint + Teams Sync** under **Settings → Community plugins**.
 
 Every push to `main` automatically runs `.github/workflows/release.yml`, which compiles `main.js` and publishes `main.js`, `manifest.json`, and `styles.css` to the latest GitHub Release for BRAT.
 

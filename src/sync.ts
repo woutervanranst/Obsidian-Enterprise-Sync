@@ -85,6 +85,8 @@ export function isIgnoredVaultPath(
     if (
       subPath === "workspace.json" ||
       subPath === "workspace-mobile.json" ||
+      subPath === "plugins/entra-sharepoint-sync/data.json" ||
+      subPath.startsWith("plugins/entra-sharepoint-sync/data.json") ||
       subPath === "plugins/obsidian-entra-sync/data.json" ||
       subPath.startsWith("plugins/obsidian-entra-sync/data.json")
     ) {

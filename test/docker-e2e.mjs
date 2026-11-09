@@ -22,7 +22,7 @@ function setupUserDir(userSlug) {
   const obsidianCfgDir = path.join(configDir, ".config", "obsidian");
   const vaultDir = path.join(configDir, "SharedVault");
   const dotObsidianDir = path.join(vaultDir, ".obsidian");
-  const pluginDir = path.join(dotObsidianDir, "plugins", "obsidian-entra-sync");
+  const pluginDir = path.join(dotObsidianDir, "plugins", "entra-sharepoint-sync");
 
   fs.mkdirSync(openboxDir, { recursive: true });
   fs.mkdirSync(labwcDir, { recursive: true });
@@ -55,7 +55,7 @@ function setupUserDir(userSlug) {
   // Enable community plugin automatically
   fs.writeFileSync(
     path.join(dotObsidianDir, "community-plugins.json"),
-    JSON.stringify(["obsidian-entra-sync"])
+    JSON.stringify(["entra-sharepoint-sync"])
   );
   fs.writeFileSync(path.join(dotObsidianDir, "app.json"), JSON.stringify({}));
 
@@ -156,13 +156,13 @@ async function getVaultPage(browser, timeoutMs = 45000) {
             try {
               await app.plugins.setEnable(true);
               await app.plugins.loadManifests();
-              if (!app.plugins.getPlugin("obsidian-entra-sync")) {
-                await app.plugins.enablePluginAndSave("obsidian-entra-sync");
+              if (!app.plugins.getPlugin("entra-sharepoint-sync")) {
+                await app.plugins.enablePluginAndSave("entra-sharepoint-sync");
               }
             } catch (e) {
               return { error: String(e), manifests: Object.keys(app.plugins.manifests || {}) };
             }
-            const plugin = app.plugins.getPlugin("obsidian-entra-sync");
+            const plugin = app.plugins.getPlugin("entra-sharepoint-sync");
             if (app.setting) {
               app.setting.shouldUsePopout = () => false;
             }
@@ -247,7 +247,7 @@ async function runDockerE2E() {
       }
       window.app.setting.shouldUsePopout = () => false;
       window.app.setting.open();
-      window.app.setting.openTabById("obsidian-entra-sync");
+      window.app.setting.openTabById("entra-sharepoint-sync");
     });
     await alicePage.locator("button", { hasText: "Sign in (Entra Credentials)" }).click();
     await alicePage.locator('input[placeholder="user@yourdomain.onmicrosoft.com"]').fill(
@@ -314,7 +314,7 @@ async function runDockerE2E() {
       const leaf = window.app.workspace.getLeaf(false);
       const file = vault.getAbstractFileByPath("SharedDesign.md");
       if (file) await leaf.openFile(file);
-      const plugin = window.app.plugins.getPlugin("obsidian-entra-sync");
+      const plugin = window.app.plugins.getPlugin("entra-sharepoint-sync");
       await plugin.triggerManualSync();
     }, initialDoc);
 
@@ -326,7 +326,7 @@ async function runDockerE2E() {
       }
       window.app.setting.shouldUsePopout = () => false;
       window.app.setting.open();
-      window.app.setting.openTabById("obsidian-entra-sync");
+      window.app.setting.openTabById("entra-sharepoint-sync");
     });
     await bobPage.locator("button", { hasText: "Sign in (Entra Credentials)" }).click();
     await bobPage.locator('input[placeholder="user@yourdomain.onmicrosoft.com"]').fill(
@@ -357,7 +357,7 @@ async function runDockerE2E() {
 
     // Verify Bob's Obsidian vault now has SharedDesign.md!
     const bobPulledContent = await bobPage.evaluate(async () => {
-      const plugin = window.app.plugins.getPlugin("obsidian-entra-sync");
+      const plugin = window.app.plugins.getPlugin("entra-sharepoint-sync");
       await plugin.triggerManualSync();
       const file = window.app.vault.getAbstractFileByPath("SharedDesign.md");
       if (!file) return null;
@@ -379,7 +379,7 @@ async function runDockerE2E() {
     await alicePage.evaluate(async (text) => {
       const file = window.app.vault.getAbstractFileByPath("SharedDesign.md");
       await window.app.vault.modify(file, text);
-      const plugin = window.app.plugins.getPlugin("obsidian-entra-sync");
+      const plugin = window.app.plugins.getPlugin("entra-sharepoint-sync");
       await plugin.syncEngine.pushMarkdownFile(file);
     }, aliceUpdatedDoc);
 
@@ -387,7 +387,7 @@ async function runDockerE2E() {
     const bobMergedText = await bobPage.evaluate(async (text) => {
       const file = window.app.vault.getAbstractFileByPath("SharedDesign.md");
       await window.app.vault.modify(file, text);
-      const plugin = window.app.plugins.getPlugin("obsidian-entra-sync");
+      const plugin = window.app.plugins.getPlugin("entra-sharepoint-sync");
       await plugin.syncEngine.pushMarkdownFile(file);
       return await window.app.vault.read(file);
     }, bobUpdatedDoc);
@@ -399,7 +399,7 @@ async function runDockerE2E() {
     // Alice syncs to pull Version 3.0 and opens the Version History Modal UI!
     console.log("13. Alice syncing merged version and opening VersionHistoryModal in Obsidian UI...");
     await alicePage.evaluate(async () => {
-      const plugin = window.app.plugins.getPlugin("obsidian-entra-sync");
+      const plugin = window.app.plugins.getPlugin("entra-sharepoint-sync");
       await plugin.triggerManualSync();
       plugin.openActiveFileHistory();
     });

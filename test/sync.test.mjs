@@ -509,7 +509,7 @@ test("End-to-end Microsoft Entra ID Auth + SharePoint/OneDrive Graph Vault Shari
     await aliceObsidianVault.adapter.mkdir(".obsidian");
     await aliceObsidianVault.adapter.mkdir(".obsidian/snippets");
     await aliceObsidianVault.adapter.mkdir(".obsidian/plugins");
-    await aliceObsidianVault.adapter.mkdir(".obsidian/plugins/obsidian-entra-sync");
+    await aliceObsidianVault.adapter.mkdir(".obsidian/plugins/entra-sharepoint-sync");
     await aliceObsidianVault.adapter.write(
       ".obsidian/app.json",
       JSON.stringify({ strictLineBreaks: true, showLineNumber: true }, null, 2)
@@ -524,7 +524,7 @@ test("End-to-end Microsoft Entra ID Auth + SharePoint/OneDrive Graph Vault Shari
       JSON.stringify({ main: "alice-personal-tabs" })
     );
     await aliceObsidianVault.adapter.write(
-      ".obsidian/plugins/obsidian-entra-sync/data.json",
+      ".obsidian/plugins/entra-sharepoint-sync/data.json",
       JSON.stringify({ tokens: { accessToken: "SECRET-ALICE-TOKEN" } })
     );
 
@@ -551,9 +551,9 @@ test("End-to-end Microsoft Entra ID Auth + SharePoint/OneDrive Graph Vault Shari
       "Personal workspace.json must never sync to other users"
     );
     assert.equal(
-      await bobObsidianVault.adapter.exists(".obsidian/plugins/obsidian-entra-sync/data.json"),
+      await bobObsidianVault.adapter.exists(".obsidian/plugins/entra-sharepoint-sync/data.json"),
       false,
-      "Personal Entra ID tokens in obsidian-entra-sync/data.json must never sync to other users"
+      "Personal Entra ID tokens in entra-sharepoint-sync/data.json must never sync to other users"
     );
   } finally {
     await mockGraph.stop();
