@@ -1,6 +1,6 @@
 {
   "name": "entra-sharepoint-sync",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Collaborative vault sync, per-vault sharing, 3-way merge, and version history backed by Microsoft Entra ID, SharePoint, and OneDrive.",
   "private": true,
   "scripts": {

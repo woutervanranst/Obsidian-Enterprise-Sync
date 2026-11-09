@@ -43,6 +43,36 @@ export interface VaultPermission {
   };
 }
 
+interface GraphErrorPayload {
+  error?: {
+    code?: string;
+    message?: string;
+    innerError?: unknown;
+  };
+}
+
+interface GraphDriveItemNode extends DeltaDriveItem {
+  webUrl?: string;
+  "@microsoft.graph.downloadUrl"?: string;
+  remoteItem?: GraphDriveItemNode;
+}
+
+interface GraphListResponse<T> {
+  value?: T[];
+  "@odata.nextLink"?: string;
+  "@odata.deltaLink"?: string;
+}
+
+interface GraphSiteNode {
+  id: string;
+  displayName: string;
+}
+
+interface GraphDriveNode {
+  id: string;
+  webUrl?: string;
+}
+
 interface GraphRequestOptions {
   url: string;
   method?: string;
@@ -87,7 +117,8 @@ export class GraphVaultClient {
   private extractErrorDetails(res: RequestUrlResponse): Record<string, unknown> {
     const wwwAuth =
       res.headers?.["www-authenticate"] || res.headers?.["WWW-Authenticate"] || undefined;
-    const graphErr = res.json?.error;
+    const errPayload = res.json as GraphErrorPayload | undefined;
+    const graphErr = errPayload?.error;
     return {
       status: res.status,
       code: graphErr?.code,
@@ -99,7 +130,8 @@ export class GraphVaultClient {
   }
 
   private formatErrorSummary(res: RequestUrlResponse): string {
-    const graphErr = res.json?.error;
+    const errPayload = res.json as GraphErrorPayload | undefined;
+    const graphErr = errPayload?.error;
     if (graphErr?.code || graphErr?.message) {
       return `${graphErr.code || "GraphError"}: ${graphErr.message || ""}`.trim();
     }
@@ -230,7 +262,8 @@ export class GraphVaultClient {
         throwOnError: false,
       });
       if (ownFolderRes.status === 200) {
-        for (const item of ownFolderRes.json?.value ?? []) {
+        const ownFolderJson = ownFolderRes.json as GraphListResponse<GraphDriveItemNode> | undefined;
+        for (const item of ownFolderJson?.value ?? []) {
           if (item.folder && item.parentReference?.driveId) {
             addVault({
               name: `${item.name} (My OneDrive)`,
@@ -249,7 +282,8 @@ export class GraphVaultClient {
       throwOnError: false,
     });
     if (sharedRes.status === 200) {
-      for (const item of sharedRes.json?.value ?? []) {
+      const sharedJson = sharedRes.json as GraphListResponse<GraphDriveItemNode> | undefined;
+      for (const item of sharedJson?.value ?? []) {
         const remote = item.remoteItem ?? item;
         if (remote.folder && remote.parentReference?.driveId) {
           addVault({
@@ -269,17 +303,19 @@ export class GraphVaultClient {
         throwOnError: false,
       });
       if (sitesRes.status === 200) {
-        for (const site of sitesRes.json?.value ?? []) {
+        const sitesJson = sitesRes.json as GraphListResponse<GraphSiteNode> | undefined;
+        for (const site of sitesJson?.value ?? []) {
           const driveRes = await this.graphRequest({
             url: `${base}/sites/${site.id}/drive`,
             throwOnError: false,
           });
-          if (driveRes.status === 200) {
+          const driveJson = driveRes.json as GraphDriveNode | undefined;
+          if (driveRes.status === 200 && driveJson) {
             addVault({
               name: `${site.displayName} (SharePoint)`,
-              driveId: driveRes.json.id,
+              driveId: driveJson.id,
               rootItemId: "root",
-              webUrl: driveRes.json.webUrl ?? "",
+              webUrl: driveJson.webUrl ?? "",
             });
           }
         }
@@ -306,7 +342,7 @@ export class GraphVaultClient {
     const segments = fullPath.split("/").filter(Boolean);
     let currentParentId = "root";
     let driveId = "";
-    let lastItem: any = null;
+    let lastItem: GraphDriveItemNode | null = null;
 
     for (let i = 0; i < segments.length; i++) {
       const segment = segments[i];
@@ -327,8 +363,9 @@ export class GraphVaultClient {
         throwOnError: false,
       });
 
-      if (res.status >= 200 && res.status < 300 && res.json) {
-        lastItem = res.json;
+      const createdItem = res.json as GraphDriveItemNode | undefined;
+      if (res.status >= 200 && res.status < 300 && createdItem) {
+        lastItem = createdItem;
         currentParentId = lastItem.id;
         driveId = lastItem.parentReference?.driveId ?? driveId;
       } else {
@@ -341,7 +378,8 @@ export class GraphVaultClient {
           url: `${base}/me/drive/root:/${subPath}`,
           throwOnError: true,
         });
-        lastItem = getRes.json;
+        const fetchedItem = getRes.json as GraphDriveItemNode;
+        lastItem = fetchedItem;
         currentParentId = lastItem.id;
         driveId = lastItem.parentReference?.driveId ?? driveId;
       }
@@ -375,7 +413,8 @@ export class GraphVaultClient {
         recipients: emails.map((email) => ({ email: email.trim() })),
       }),
     });
-    return res.json?.value ?? [];
+    const permJson = res.json as GraphListResponse<VaultPermission> | undefined;
+    return permJson?.value ?? [];
   }
 
   async listPermissions(target: RemoteVaultTarget): Promise<VaultPermission[]> {
@@ -385,7 +424,8 @@ export class GraphVaultClient {
       throwOnError: false,
     });
     if (res.status !== 200) return [];
-    return res.json?.value ?? [];
+    const permJson = res.json as GraphListResponse<VaultPermission> | undefined;
+    return permJson?.value ?? [];
   }
 
   /**
@@ -422,11 +462,12 @@ export class GraphVaultClient {
         );
       }
 
-      items.push(...(res.json?.value ?? []));
-      if (res.json?.["@odata.nextLink"]) {
-        url = res.json["@odata.nextLink"];
+      const deltaJson = res.json as GraphListResponse<DeltaDriveItem> | undefined;
+      items.push(...(deltaJson?.value ?? []));
+      if (deltaJson?.["@odata.nextLink"]) {
+        url = deltaJson["@odata.nextLink"];
       } else {
-        nextDeltaLink = res.json?.["@odata.deltaLink"] ?? "";
+        nextDeltaLink = deltaJson?.["@odata.deltaLink"] ?? "";
         break;
       }
     }
@@ -442,8 +483,9 @@ export class GraphVaultClient {
     const metaRes = await this.graphRequest({
       url: `${base}/drives/${driveId}/items/${itemId}`,
     });
+    const metaItem = metaRes.json as GraphDriveItemNode | undefined;
     const downloadUrl: string =
-      metaRes.json?.["@microsoft.graph.downloadUrl"] ||
+      metaItem?.["@microsoft.graph.downloadUrl"] ||
       `${base}/drives/${driveId}/items/${itemId}/content`;
 
     const isGraphApiUrl = downloadUrl.startsWith(base);
@@ -495,13 +537,14 @@ export class GraphVaultClient {
     itemId: string
   ): Promise<{ text: string; eTag: string; lastModifiedBy?: string }> {
     const { metaRes, contentRes } = await this.fetchItemContentResponse(driveId, itemId);
+    const metaItem = metaRes.json as GraphDriveItemNode | undefined;
     const author =
-      metaRes.json?.lastModifiedBy?.user?.displayName ||
-      metaRes.json?.lastModifiedBy?.user?.email;
+      metaItem?.lastModifiedBy?.user?.displayName ||
+      metaItem?.lastModifiedBy?.user?.email;
 
     return {
       text: contentRes.text,
-      eTag: metaRes.json?.eTag ?? "",
+      eTag: metaItem?.eTag ?? "",
       lastModifiedBy: author,
     };
   }
@@ -511,13 +554,14 @@ export class GraphVaultClient {
     itemId: string
   ): Promise<{ data: ArrayBuffer; eTag: string; lastModifiedBy?: string }> {
     const { metaRes, contentRes } = await this.fetchItemContentResponse(driveId, itemId);
+    const metaItem = metaRes.json as GraphDriveItemNode | undefined;
     const author =
-      metaRes.json?.lastModifiedBy?.user?.displayName ||
-      metaRes.json?.lastModifiedBy?.user?.email;
+      metaItem?.lastModifiedBy?.user?.displayName ||
+      metaItem?.lastModifiedBy?.user?.email;
 
     return {
       data: contentRes.arrayBuffer,
-      eTag: metaRes.json?.eTag ?? "",
+      eTag: metaItem?.eTag ?? "",
       lastModifiedBy: author,
     };
   }
@@ -559,7 +603,7 @@ export class GraphVaultClient {
 
     return {
       status: res.status,
-      item: res.status >= 200 && res.status < 300 ? res.json : undefined,
+      item: res.status >= 200 && res.status < 300 ? (res.json as DeltaDriveItem) : undefined,
     };
   }
 
@@ -599,7 +643,7 @@ export class GraphVaultClient {
 
     return {
       status: res.status,
-      item: res.status >= 200 && res.status < 300 ? res.json : undefined,
+      item: res.status >= 200 && res.status < 300 ? (res.json as DeltaDriveItem) : undefined,
     };
   }
 
@@ -664,7 +708,8 @@ export class GraphVaultClient {
     const res = await this.graphRequest({
       url: `${base}/drives/${driveId}/items/${itemId}/versions`,
     });
-    return res.json?.value ?? [];
+    const versionJson = res.json as GraphListResponse<DriveItemVersion> | undefined;
+    return versionJson?.value ?? [];
   }
 
   async downloadVersionText(

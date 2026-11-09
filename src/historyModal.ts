@@ -19,7 +19,7 @@ export class VersionHistoryModal extends Modal {
     contentEl.addClass("entra-sync-history-modal");
     contentEl.createEl("h2", { text: `Version history: ${this.file.name}` });
     const loading = contentEl.createEl("p", {
-      text: "Loading version history from Microsoft Graph (SharePoint / OneDrive)...",
+      text: "Loading version history from SharePoint / OneDrive...",
     });
 
     try {
@@ -35,10 +35,10 @@ export class VersionHistoryModal extends Modal {
       }
 
       const previewContainer = contentEl.createDiv({ cls: "entra-sync-card" });
-      previewContainer.createEl("strong", { text: "Version Preview" });
+      previewContainer.createEl("strong", { text: "Version preview" });
       const previewEl = previewContainer.createEl("pre", {
         cls: "entra-sync-version-preview",
-        text: "Click 'Preview' on any version below to inspect its content.",
+        text: "Select preview on any version below to inspect its content.",
       });
 
       const listContainer = contentEl.createDiv({ cls: "entra-sync-version-list" });

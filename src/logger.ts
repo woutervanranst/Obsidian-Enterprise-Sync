@@ -21,7 +21,7 @@ export class SyncLogger {
         try {
           detailsStr = JSON.stringify(details);
         } catch {
-          detailsStr = String(details);
+          detailsStr = "[Unserializable details]";
         }
       }
     }
@@ -39,8 +39,6 @@ export class SyncLogger {
       console.error(consoleLine);
     } else if (level === "WARN") {
       console.warn(consoleLine);
-    } else {
-      console.log(consoleLine);
     }
   }
 

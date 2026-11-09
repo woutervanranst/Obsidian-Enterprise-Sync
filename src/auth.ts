@@ -27,6 +27,30 @@ export interface DeviceCodeResponse {
   message: string;
 }
 
+interface OAuthTokenResponse {
+  access_token?: string;
+  refresh_token?: string;
+  expires_in?: number;
+  error?: string;
+  error_description?: string;
+}
+
+interface GraphMeResponse {
+  id?: string;
+  displayName?: string;
+  mail?: string;
+  userPrincipalName?: string;
+}
+
+interface JwtClaimsPayload {
+  name?: string;
+  upn?: string;
+  preferred_username?: string;
+  email?: string;
+  oid?: string;
+  sub?: string;
+}
+
 const REDIRECT_URI = "obsidian://entra-sync-auth";
 
 function base64UrlEncode(buffer: ArrayBuffer): string {
@@ -102,21 +126,22 @@ export class EntraPkceAuth {
     });
 
     this.codeVerifier = null;
-    if (res.status !== 200 || !res.json?.access_token) {
+    const tokenJson = res.json as OAuthTokenResponse | undefined;
+    if (res.status !== 200 || !tokenJson?.access_token) {
       const errDetail =
-        res.json?.error_description || res.json?.error || res.text || `HTTP ${res.status}`;
+        tokenJson?.error_description || tokenJson?.error || res.text || `HTTP ${res.status}`;
       this.logger.error(`PKCE token exchange failed (${res.status})`, errDetail);
       throw new Error(`PKCE token exchange failed (${res.status}): ${errDetail}`);
     }
 
     this.logger.info("PKCE token exchange succeeded", {
-      hasRefreshToken: Boolean(res.json.refresh_token),
-      expiresInSec: res.json.expires_in,
+      hasRefreshToken: Boolean(tokenJson.refresh_token),
+      expiresInSec: tokenJson.expires_in,
     });
     return this.enrichWithProfile({
-      accessToken: res.json.access_token,
-      refreshToken: res.json.refresh_token ?? "",
-      expiresAt: Date.now() + (res.json.expires_in ?? 3600) * 1000 - 60_000,
+      accessToken: tokenJson.access_token,
+      refreshToken: tokenJson.refresh_token ?? "",
+      expiresAt: Date.now() + (tokenJson.expires_in ?? 3600) * 1000 - 60_000,
     });
   }
 
@@ -154,19 +179,20 @@ export class EntraPkceAuth {
       throw: false,
     });
 
-    if (res.status === 200 && res.json?.access_token) {
+    const tokenJson = res.json as OAuthTokenResponse | undefined;
+    if (res.status === 200 && tokenJson?.access_token) {
       return this.enrichWithProfile({
-        accessToken: res.json.access_token,
-        refreshToken: res.json.refresh_token ?? "",
-        expiresAt: Date.now() + (res.json.expires_in ?? 3600) * 1000 - 60_000,
+        accessToken: tokenJson.access_token,
+        refreshToken: tokenJson.refresh_token ?? "",
+        expiresAt: Date.now() + (tokenJson.expires_in ?? 3600) * 1000 - 60_000,
       });
     }
 
-    if (res.json?.error === "authorization_pending" || res.json?.error === "slow_down") {
+    if (tokenJson?.error === "authorization_pending" || tokenJson?.error === "slow_down") {
       return null;
     }
 
-    throw new Error(res.json?.error_description || res.json?.error || "Device code login failed");
+    throw new Error(tokenJson?.error_description || tokenJson?.error || "Device code login failed");
   }
 
   /**
@@ -195,16 +221,17 @@ export class EntraPkceAuth {
       throw: false,
     });
 
-    if (res.status !== 200 || !res.json?.access_token) {
+    const tokenJson = res.json as OAuthTokenResponse | undefined;
+    if (res.status !== 200 || !tokenJson?.access_token) {
       throw new Error(
-        res.json?.error_description || res.json?.error || `Entra sign-in failed (${res.status})`
+        tokenJson?.error_description || tokenJson?.error || `Entra sign-in failed (${res.status})`
       );
     }
 
     return this.enrichWithProfile({
-      accessToken: res.json.access_token,
-      refreshToken: res.json.refresh_token ?? "",
-      expiresAt: Date.now() + (res.json.expires_in ?? 3600) * 1000 - 60_000,
+      accessToken: tokenJson.access_token,
+      refreshToken: tokenJson.refresh_token ?? "",
+      expiresAt: Date.now() + (tokenJson.expires_in ?? 3600) * 1000 - 60_000,
     });
   }
 
@@ -215,10 +242,11 @@ export class EntraPkceAuth {
         headers: { Authorization: `Bearer ${tokens.accessToken}` },
         throw: false,
       });
-      if (meRes.status === 200 && meRes.json) {
-        tokens.userDisplayName = meRes.json.displayName;
-        tokens.userEmail = meRes.json.mail || meRes.json.userPrincipalName;
-        tokens.userId = meRes.json.id;
+      const meJson = meRes.json as GraphMeResponse | undefined;
+      if (meRes.status === 200 && meJson) {
+        tokens.userDisplayName = meJson.displayName;
+        tokens.userEmail = meJson.mail || meJson.userPrincipalName;
+        tokens.userId = meJson.id;
         this.logger.info("Loaded user profile from /v1.0/me", {
           userDisplayName: tokens.userDisplayName,
           userEmail: tokens.userEmail,
@@ -234,7 +262,7 @@ export class EntraPkceAuth {
         const payloadPart = tokens.accessToken.split(".")[1];
         if (payloadPart) {
           const padded = payloadPart.replace(/-/g, "+").replace(/_/g, "/");
-          const decoded = JSON.parse(atob(padded));
+          const decoded = JSON.parse(atob(padded)) as JwtClaimsPayload;
           tokens.userDisplayName = tokens.userDisplayName || decoded.name;
           tokens.userEmail =
             tokens.userEmail || decoded.upn || decoded.preferred_username || decoded.email;
@@ -282,10 +310,11 @@ export class EntraPkceAuth {
       throw: false,
     });
 
-    if (res.status !== 200 || !res.json?.access_token) {
+    const tokenJson = res.json as OAuthTokenResponse | undefined;
+    if (res.status !== 200 || !tokenJson?.access_token) {
       const errMsg =
-        res.json?.error_description ||
-        res.json?.error ||
+        tokenJson?.error_description ||
+        tokenJson?.error ||
         res.text ||
         `HTTP ${res.status}`;
       this.logger.error(`Token refresh failed (${res.status}) at ${tokenUrl}`, errMsg);
@@ -297,9 +326,9 @@ export class EntraPkceAuth {
 
     const updated: AuthTokens = {
       ...tokens,
-      accessToken: res.json.access_token,
-      refreshToken: res.json.refresh_token ?? tokens.refreshToken,
-      expiresAt: Date.now() + (res.json.expires_in ?? 3600) * 1000 - 60_000,
+      accessToken: tokenJson.access_token,
+      refreshToken: tokenJson.refresh_token ?? tokens.refreshToken,
+      expiresAt: Date.now() + (tokenJson.expires_in ?? 3600) * 1000 - 60_000,
     };
     this.logger.info("Access token refreshed successfully", {
       expiresAt: new Date(updated.expiresAt).toISOString(),

@@ -1,4 +1,4 @@
-name: Release Obsidian Plugin (BRAT)
+name: Release Obsidian Plugin
 
 on:
   push:
@@ -39,7 +39,7 @@ jobs:
           VERSION=$(node -p "require('./manifest.json').version")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Create or update GitHub Release for BRAT
+      - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.manifest.outputs.version }}
@@ -55,6 +55,6 @@ jobs:
           else
             gh release create "$VERSION" main.js manifest.json styles.css \
               --title "v$VERSION" \
-              --notes "Automated Obsidian Enterprise Sync release for BRAT and manual installation (commit ${GITHUB_SHA::7})." \
+              --notes "Release $VERSION for the Obsidian Community Plugins directory (commit ${GITHUB_SHA::7})." \
               --latest
           fi

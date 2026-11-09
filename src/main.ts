@@ -71,15 +71,15 @@ export default class EntraSharePointSyncPlugin extends Plugin {
       }
     });
 
-    // Ribbon: Sync Now
-    this.addRibbonIcon("refresh-cw", "Entra Sync: Sync Vault Now", async () => {
+    // Ribbon: Sync now
+    this.addRibbonIcon("refresh-cw", "Sync vault now", async () => {
       await this.triggerManualSync();
     });
 
-    // Ribbon: Share Vault
-    this.addRibbonIcon("users", "Entra Sync: Share Vault with Colleagues", () => {
+    // Ribbon: Share vault
+    this.addRibbonIcon("users", "Share vault with colleagues", () => {
       if (!this.settings.tokens) {
-        new Notice("Please sign in with Entra ID / Microsoft first.");
+        new Notice("Please sign in with Microsoft Entra ID first.");
         return;
       }
       if (!this.settings.activeVault) {
@@ -89,8 +89,8 @@ export default class EntraSharePointSyncPlugin extends Plugin {
       new ShareVaultModal(this.app, this.settings.activeVault, this.graph).open();
     });
 
-    // Ribbon: Version History
-    this.addRibbonIcon("history", "Entra Sync: View Note Version History", () => {
+    // Ribbon: Version history
+    this.addRibbonIcon("history", "View note version history", () => {
       this.openActiveFileHistory();
     });
 
@@ -99,7 +99,11 @@ export default class EntraSharePointSyncPlugin extends Plugin {
       if (
         this.syncEngine &&
         abstractFile instanceof TFile &&
-        !isIgnoredVaultPath(abstractFile.path) &&
+        !isIgnoredVaultPath(
+          abstractFile.path,
+          this.settings.syncObsidianConfig,
+          this.app.vault.configDir
+        ) &&
         !this.syncEngine.isPathSuppressed(abstractFile.path)
       ) {
         if (this.modifyTimeoutId !== null) {
@@ -111,7 +115,7 @@ export default class EntraSharePointSyncPlugin extends Plugin {
             this.updateStatusBar("Synced");
           } catch (err) {
             this.logger.error(`Auto-push failed for ${abstractFile.path}`, String(err));
-            this.updateStatusBar("Sync Error");
+            this.updateStatusBar("Sync error");
           }
         }, 800);
       }
@@ -126,7 +130,11 @@ export default class EntraSharePointSyncPlugin extends Plugin {
         if (
           this.syncEngine &&
           (abstractFile instanceof TFile || abstractFile instanceof TFolder) &&
-          !isIgnoredVaultPath(abstractFile.path) &&
+          !isIgnoredVaultPath(
+            abstractFile.path,
+            this.settings.syncObsidianConfig,
+            this.app.vault.configDir
+          ) &&
           !this.syncEngine.isDeleteSuppressed(abstractFile.path)
         ) {
           const isFolder = abstractFile instanceof TFolder;
@@ -138,7 +146,7 @@ export default class EntraSharePointSyncPlugin extends Plugin {
                 `Remote delete failed for ${abstractFile.path}`,
                 String(err)
               );
-              this.updateStatusBar("Sync Error");
+              this.updateStatusBar("Sync error");
             });
         }
       })
@@ -150,7 +158,11 @@ export default class EntraSharePointSyncPlugin extends Plugin {
         if (
           this.syncEngine &&
           (abstractFile instanceof TFile || abstractFile instanceof TFolder) &&
-          !isIgnoredVaultPath(abstractFile.path)
+          !isIgnoredVaultPath(
+            abstractFile.path,
+            this.settings.syncObsidianConfig,
+            this.app.vault.configDir
+          )
         ) {
           void this.syncEngine
             .renameLocalPath(oldPath, abstractFile)
@@ -160,25 +172,25 @@ export default class EntraSharePointSyncPlugin extends Plugin {
                 `Remote rename failed from ${oldPath} to ${abstractFile.path}`,
                 String(err)
               );
-              this.updateStatusBar("Sync Error");
+              this.updateStatusBar("Sync error");
             });
         }
       })
     );
 
-    // Command: Sync Vault Now
+    // Command: Sync vault now
     this.addCommand({
       id: "entra-sync-now",
-      name: "Sync Vault Now (SharePoint / OneDrive)",
+      name: "Sync vault now",
       callback: async () => {
         await this.triggerManualSync();
       },
     });
 
-    // Command: Share Vault with Colleagues
+    // Command: Share vault with colleagues
     this.addCommand({
       id: "entra-share-vault",
-      name: "Share Vault with Colleagues (SharePoint / OneDrive)",
+      name: "Share vault with colleagues",
       callback: () => {
         if (!this.settings.activeVault) {
           new Notice("No active shared vault configured.");
@@ -188,19 +200,19 @@ export default class EntraSharePointSyncPlugin extends Plugin {
       },
     });
 
-    // Command: View SharePoint / OneDrive Version History for active note
+    // Command: View SharePoint / OneDrive version history for active note
     this.addCommand({
       id: "view-note-version-history",
-      name: "View Note Version History (SharePoint / OneDrive)",
+      name: "View note version history",
       callback: () => {
         this.openActiveFileHistory();
       },
     });
 
-    // Command: View Sync Diagnostic Logs
+    // Command: View sync diagnostic logs
     this.addCommand({
       id: "entra-view-sync-logs",
-      name: "View Sync Diagnostic Logs (SharePoint / OneDrive)",
+      name: "View sync diagnostic logs",
       callback: () => {
         new SyncLogsModal(this.app, this).open();
       },
@@ -220,6 +232,10 @@ export default class EntraSharePointSyncPlugin extends Plugin {
     if (this.syncTimerId !== null) {
       window.clearInterval(this.syncTimerId);
       this.syncTimerId = null;
+    }
+    if (this.modifyTimeoutId !== null) {
+      window.clearTimeout(this.modifyTimeoutId);
+      this.modifyTimeoutId = null;
     }
   }
 
@@ -340,16 +356,19 @@ export default class EntraSharePointSyncPlugin extends Plugin {
       this.settings.tokens &&
       this.settings.autoSyncIntervalSec > 0
     ) {
-      this.syncTimerId = window.setInterval(() => {
-        void this.triggerManualSync(true);
-      }, this.settings.autoSyncIntervalSec * 1000);
+      this.syncTimerId = this.registerInterval(
+        window.setInterval(() => {
+          void this.triggerManualSync(true);
+        }, this.settings.autoSyncIntervalSec * 1000)
+      );
     }
 
     this.updateStatusBar(this.settings.activeVault ? "Connected" : "Signed in");
   }
 
   async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const loaded = (await this.loadData()) as Partial<EntraSyncSettings> | null;
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
     if (!this.settings.syncStore || !this.settings.syncStore.files) {
       this.settings.syncStore = { files: {} };
     }
@@ -377,10 +396,10 @@ class EntraCredentialsModal extends Modal {
     contentEl.empty();
     contentEl.createEl("h2", { text: "Sign in with Microsoft Entra ID" });
     contentEl.createEl("p", {
-      text: "Authenticate with your Enterprise Entra ID account to activate Obsidian Enterprise Sync.",
+      text: "Authenticate with your Microsoft Entra ID account to activate collaborative vault sync.",
     });
 
-    new Setting(contentEl).setName("Work / School Account (UPN)").addText((text) =>
+    new Setting(contentEl).setName("Work or school account (UPN)").addText((text) =>
       text
         .setPlaceholder("user@yourdomain.onmicrosoft.com")
         .onChange((val) => {
@@ -397,7 +416,7 @@ class EntraCredentialsModal extends Modal {
 
     new Setting(contentEl).addButton((btn) =>
       btn
-        .setButtonText("Sign In")
+        .setButtonText("Sign in")
         .setCta()
         .onClick(async () => {
           try {
@@ -429,12 +448,19 @@ class EntraSyncSettingTab extends PluginSettingTab {
     super(app, plugin);
   }
 
+  getSettingDefinitions() {
+    return [
+      { id: "tenantId", name: "Tenant ID" },
+      { id: "clientId", name: "Entra app client ID" },
+      { id: "oneDriveVaultsFolder", name: "OneDrive vaults folder path" },
+      { id: "graphBaseUrl", name: "Microsoft Graph base URL" },
+      { id: "syncObsidianConfig", name: "Sync vault configuration" },
+    ];
+  }
+
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.createEl("h2", {
-      text: "Enterprise Sync (Entra ID & SharePoint / OneDrive)",
-    });
 
     // Enterprise Account Status Card
     const card = containerEl.createDiv({ cls: "entra-sync-card" });
@@ -442,11 +468,11 @@ class EntraSyncSettingTab extends PluginSettingTab {
       const user =
         this.plugin.settings.tokens.userDisplayName ||
         this.plugin.settings.tokens.userEmail ||
-        "Authenticated User";
+        "Authenticated user";
       const email = this.plugin.settings.tokens.userEmail || "";
-      card.createEl("div", {
+      card.createDiv({
         cls: "entra-sync-badge",
-        text: "✓ Obsidian Enterprise Sync Active (Entra ID Verified)",
+        text: "✓ Collaborative vault sync active (Microsoft Entra ID verified)",
       });
       card.createEl("p", {
         text: `Signed in as: ${user}${email && email !== user ? ` (${email})` : ""}`,
@@ -460,7 +486,7 @@ class EntraSyncSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Tenant ID")
       .setDesc(
-        'Use "common" for Consumer OneDrive + Multitenant dev, or your Enterprise Tenant UUID.'
+        'Use "common" for personal OneDrive and multitenant sign-in, or enter your enterprise tenant UUID.'
       )
       .addText((text) =>
         text.setValue(this.plugin.settings.tenantId).onChange(async (val) => {
@@ -471,8 +497,8 @@ class EntraSyncSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Entra App Client ID")
-      .setDesc("Application (client) ID from Microsoft Entra App Registrations.")
+      .setName("Entra app client ID")
+      .setDesc("Application (client) ID from Microsoft Entra app registrations.")
       .addText((text) =>
         text.setValue(this.plugin.settings.clientId).onChange(async (val) => {
           this.plugin.settings.clientId = val.trim();
@@ -482,7 +508,7 @@ class EntraSyncSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("OneDrive Vaults Folder Path")
+      .setName("OneDrive vaults folder path")
       .setDesc(
         "Parent folder in OneDrive (e.g. ObsidianVaults or Documents/Documents)"
       )
@@ -497,7 +523,7 @@ class EntraSyncSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Microsoft Graph Base URL")
+      .setName("Microsoft Graph base URL")
       .setDesc("Default: https://graph.microsoft.com/v1.0")
       .addText((text) =>
         text.setValue(this.plugin.settings.graphBaseUrl).onChange(async (val) => {
@@ -509,7 +535,7 @@ class EntraSyncSettingTab extends PluginSettingTab {
       );
 
     const authSetting = new Setting(containerEl)
-      .setName("Microsoft / Entra ID Account")
+      .setName("Microsoft / Entra ID account")
       .setDesc(
         this.plugin.settings.tokens
           ? `Connected as ${
@@ -520,7 +546,7 @@ class EntraSyncSettingTab extends PluginSettingTab {
       );
 
     authSetting.addButton((btn) =>
-      btn.setButtonText("Sign in (Browser PKCE)").onClick(async () => {
+      btn.setButtonText("Sign in (browser PKCE)").onClick(async () => {
         const url = await this.plugin.auth.startLogin();
         window.open(url);
       })
@@ -528,7 +554,7 @@ class EntraSyncSettingTab extends PluginSettingTab {
 
     authSetting.addButton((btn) =>
       btn
-        .setButtonText("Sign in (Entra Credentials)")
+        .setButtonText("Sign in (Entra credentials)")
         .setCta()
         .onClick(() => {
           new EntraCredentialsModal(this.app, this.plugin, () => {
@@ -540,8 +566,7 @@ class EntraSyncSettingTab extends PluginSettingTab {
     if (this.plugin.settings.tokens) {
       authSetting.addButton((btn) =>
         btn
-          .setButtonText("Sign Out")
-          .setWarning()
+          .setButtonText("Sign out")
           .onClick(async () => {
             this.plugin.settings.tokens = undefined;
             this.plugin.settings.activeVault = undefined;
@@ -552,17 +577,19 @@ class EntraSyncSettingTab extends PluginSettingTab {
           })
       );
 
-      containerEl.createEl("h3", { text: "Shared Vault & Collaboration" });
+      new Setting(containerEl)
+        .setName("Shared vault and collaboration")
+        .setHeading();
 
       new Setting(containerEl)
-        .setName("Active Remote Vault")
+        .setName("Active remote vault")
         .setDesc(
           this.plugin.settings.activeVault
             ? `${this.plugin.settings.activeVault.name} (Drive: ${this.plugin.settings.activeVault.driveId})`
             : "No remote vault connected yet"
         )
         .addButton((btn) =>
-          btn.setButtonText("Discover Vaults").onClick(async () => {
+          btn.setButtonText("Discover vaults").onClick(async () => {
             try {
               this.availableVaults =
                 await this.plugin.graph.listAvailableVaults(
@@ -578,7 +605,7 @@ class EntraSyncSettingTab extends PluginSettingTab {
         )
         .addButton((btn) =>
           btn
-            .setButtonText("Sync Now")
+            .setButtonText("Sync now")
             .setCta()
             .onClick(async () => {
               await this.plugin.triggerManualSync();
@@ -587,8 +614,8 @@ class EntraSyncSettingTab extends PluginSettingTab {
 
       if (this.availableVaults.length > 0) {
         new Setting(containerEl)
-          .setName("Select Discovered Vault")
-          .setDesc("Choose a personal OneDrive folder, Shared with Me folder, or SharePoint library")
+          .setName("Select discovered vault")
+          .setDesc("Choose a personal OneDrive folder, shared folder, or SharePoint library")
           .addDropdown((drop) => {
             drop.addOption("", "-- Select a vault --");
             for (const v of this.availableVaults) {
@@ -616,7 +643,7 @@ class EntraSyncSettingTab extends PluginSettingTab {
       }
 
       new Setting(containerEl)
-        .setName("Create / Connect Vault Folder")
+        .setName("Create or connect vault folder")
         .setDesc(
           `Create or connect a vault folder inside '${this.plugin.settings.oneDriveVaultsFolder}'`
         )
@@ -629,7 +656,7 @@ class EntraSyncSettingTab extends PluginSettingTab {
             })
         )
         .addButton((btn) =>
-          btn.setButtonText("Create & Connect Vault").onClick(async () => {
+          btn.setButtonText("Create and connect vault").onClick(async () => {
             if (!this.newVaultName.trim()) {
               new Notice("Enter a vault name first.");
               return;
@@ -653,10 +680,11 @@ class EntraSyncSettingTab extends PluginSettingTab {
         );
 
       if (this.plugin.settings.activeVault) {
+        const configDir = this.app.vault.configDir;
         new Setting(containerEl)
-          .setName("Sync Vault Settings (.obsidian)")
+          .setName(`Sync vault configuration (${configDir})`)
           .setDesc(
-            "Sync shared vault settings, themes, CSS snippets, hotkeys, and plugins inside .obsidian/ (automatically excludes your personal Entra ID tokens in data.json and personal workspace.json tab layout)."
+            `Sync shared vault configuration, themes, CSS snippets, hotkeys, and plugins inside ${configDir}/ (automatically excludes your personal Entra ID tokens in data.json and personal workspace.json tab layout).`
           )
           .addToggle((toggle) =>
             toggle
@@ -671,10 +699,10 @@ class EntraSyncSettingTab extends PluginSettingTab {
           );
 
         new Setting(containerEl)
-          .setName("Per-Vault Sharing (OneNote / SharePoint style)")
+          .setName("Per-vault sharing (OneNote and SharePoint style)")
           .setDesc("Invite colleagues by email and manage access permissions")
           .addButton((btn) =>
-            btn.setButtonText("Share Vault...").onClick(() => {
+            btn.setButtonText("Share vault...").onClick(() => {
               if (this.plugin.settings.activeVault) {
                 new ShareVaultModal(
                   this.app,
@@ -685,28 +713,30 @@ class EntraSyncSettingTab extends PluginSettingTab {
             })
           )
           .addButton((btn) =>
-            btn.setButtonText("Active Note Version History").onClick(() => {
+            btn.setButtonText("Active note version history").onClick(() => {
               this.plugin.openActiveFileHistory();
             })
           );
       }
     }
 
-    // Troubleshooting & Sync Logs section (always visible)
-    containerEl.createEl("h3", { text: "Troubleshooting & Sync Logs" });
+    // Troubleshooting & sync logs section (always visible)
+    new Setting(containerEl)
+      .setName("Troubleshooting and sync logs")
+      .setHeading();
 
     if (this.plugin.settings.tokens) {
       const expDate = new Date(this.plugin.settings.tokens.expiresAt).toLocaleString();
       const hasRefresh = Boolean(this.plugin.settings.tokens.refreshToken);
       new Setting(containerEl)
-        .setName("OAuth2 Token & Delta Diagnostics")
+        .setName("OAuth2 token and delta diagnostics")
         .setDesc(
           `Access token expires: ${expDate} • Refresh token present: ${
             hasRefresh ? "Yes" : "No"
           }`
         )
         .addButton((btn) =>
-          btn.setButtonText("Force Token Refresh").onClick(async () => {
+          btn.setButtonText("Force token refresh").onClick(async () => {
             if (!this.plugin.settings.tokens) return;
             try {
               this.plugin.settings.tokens = await this.plugin.auth.refresh(
@@ -723,7 +753,7 @@ class EntraSyncSettingTab extends PluginSettingTab {
           })
         )
         .addButton((btn) =>
-          btn.setButtonText("Reset Delta & Resync").onClick(async () => {
+          btn.setButtonText("Reset delta and resync").onClick(async () => {
             this.plugin.settings.syncStore.deltaLink = undefined;
             await this.plugin.saveSettings();
             this.plugin.logger.info("Cleared cached deltaLink; triggering full delta sync");
@@ -740,21 +770,21 @@ class EntraSyncSettingTab extends PluginSettingTab {
     });
 
     new Setting(containerEl)
-      .setName("Diagnostic Log Actions")
-      .setDesc("Also logged to Developer Console (Ctrl+Shift+I / Cmd+Opt+I) with prefix [EntraSync]")
+      .setName("Diagnostic log actions")
+      .setDesc("Warnings and errors are also logged to the developer console with prefix [EntraSync]")
       .addButton((btn) =>
-        btn.setButtonText("Refresh Logs").onClick(() => {
+        btn.setButtonText("Refresh logs").onClick(() => {
           logPre.setText(this.plugin.logger.formatText());
         })
       )
       .addButton((btn) =>
-        btn.setButtonText("Copy Logs").onClick(async () => {
+        btn.setButtonText("Copy logs").onClick(async () => {
           await navigator.clipboard.writeText(this.plugin.logger.formatText());
-          new Notice("Copied Entra Sync diagnostic logs to clipboard.");
+          new Notice("Copied diagnostic logs to clipboard.");
         })
       )
       .addButton((btn) =>
-        btn.setButtonText("Clear Logs").onClick(() => {
+        btn.setButtonText("Clear logs").onClick(() => {
           this.plugin.logger.clear();
           logPre.setText(this.plugin.logger.formatText());
         })
@@ -770,7 +800,7 @@ class SyncLogsModal extends Modal {
   onOpen() {
     const { contentEl } = this;
     contentEl.empty();
-    contentEl.createEl("h2", { text: "Entra Sync Diagnostic Logs" });
+    contentEl.createEl("h2", { text: "Sync diagnostic logs" });
     const pre = contentEl.createEl("pre", {
       cls: "entra-sync-version-preview entra-sync-log-viewer",
       text: this.plugin.logger.formatText(),
@@ -784,7 +814,7 @@ class SyncLogsModal extends Modal {
       )
       .addButton((btn) =>
         btn
-          .setButtonText("Copy to Clipboard")
+          .setButtonText("Copy to clipboard")
           .setCta()
           .onClick(async () => {
             await navigator.clipboard.writeText(this.plugin.logger.formatText());

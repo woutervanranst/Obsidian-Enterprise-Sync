@@ -18,13 +18,13 @@ export class ShareVaultModal extends Modal {
     contentEl.empty();
     contentEl.addClass("entra-sync-share-modal");
 
-    contentEl.createEl("h2", { text: `Share Vault: ${this.target.name}` });
+    contentEl.createEl("h2", { text: `Share vault: ${this.target.name}` });
     contentEl.createEl("p", {
-      text: "Invite enterprise colleagues (Entra ID / SharePoint) or Microsoft accounts to collaborate in this vault.",
+      text: "Invite colleagues (SharePoint / OneDrive) or Microsoft accounts to collaborate in this vault.",
     });
 
     new Setting(contentEl)
-      .setName("Colleague Email(s)")
+      .setName("Colleague email(s)")
       .setDesc("Comma-separated email addresses (e.g. bob@woutervanranstgmail.onmicrosoft.com)")
       .addText((text) =>
         text
@@ -36,12 +36,12 @@ export class ShareVaultModal extends Modal {
       );
 
     new Setting(contentEl)
-      .setName("Permission Role")
+      .setName("Permission role")
       .setDesc("Write allows editing & creating notes; Read allows viewing only.")
       .addDropdown((drop) =>
         drop
-          .addOption("write", "Can edit (Write)")
-          .addOption("read", "Can view (Read)")
+          .addOption("write", "Can edit (write)")
+          .addOption("read", "Can view (read)")
           .setValue(this.role)
           .onChange((val) => {
             this.role = val as "write" | "read";
@@ -49,7 +49,7 @@ export class ShareVaultModal extends Modal {
       );
 
     const permissionsContainer = contentEl.createDiv({ cls: "entra-sync-card" });
-    permissionsContainer.createEl("h4", { text: "Current Vault Collaborators" });
+    permissionsContainer.createEl("h4", { text: "Current vault collaborators" });
     const permsListEl = permissionsContainer.createDiv({ cls: "entra-sync-collaborators-list" });
 
     const refreshPermissions = async () => {
@@ -68,7 +68,7 @@ export class ShareVaultModal extends Modal {
         const email =
           p.grantedToV2?.user?.email || p.invitation?.email || "";
         const roles = (p.roles || []).join(", ");
-        permsListEl.createEl("div", {
+        permsListEl.createDiv({
           cls: "entra-sync-collaborator-row",
           text: `• ${name}${email && email !== name ? ` (${email})` : ""} — [${roles}]`,
         });
@@ -77,7 +77,7 @@ export class ShareVaultModal extends Modal {
 
     new Setting(contentEl).addButton((btn) =>
       btn
-        .setButtonText("Invite to Vault")
+        .setButtonText("Invite to vault")
         .setCta()
         .onClick(async () => {
           const emails = this.recipientEmail

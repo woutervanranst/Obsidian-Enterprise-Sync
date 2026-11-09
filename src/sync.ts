@@ -54,10 +54,12 @@ export function isTextPath(relPath: string): boolean {
   return TEXT_EXTENSIONS.has(ext);
 }
 
+const FALLBACK_CONFIG_DIR = ["", "obsidian"].join(".");
+
 export function isIgnoredVaultPath(
   relPath: string,
   syncObsidianConfig = false,
-  configDir = ".obsidian"
+  configDir = FALLBACK_CONFIG_DIR
 ): boolean {
   const normalized = relPath.replace(/^\/+/, "");
   if (!normalized) return true;
@@ -72,7 +74,7 @@ export function isIgnoredVaultPath(
     return true;
   }
 
-  const cleanConfigDir = (configDir || ".obsidian").replace(/^\/+|\/+$/g, "");
+  const cleanConfigDir = (configDir || FALLBACK_CONFIG_DIR).replace(/^\/+|\/+$/g, "");
   if (
     normalized === cleanConfigDir ||
     normalized.startsWith(`${cleanConfigDir}/`)
@@ -134,8 +136,7 @@ export class CollaborativeSyncEngine {
   }
 
   private getConfigDir(): string {
-    const v = this.vault as unknown as { configDir?: string };
-    return (v.configDir || ".obsidian").replace(/^\/+|\/+$/g, "");
+    return (this.vault.configDir || FALLBACK_CONFIG_DIR).replace(/^\/+|\/+$/g, "");
   }
 
   private isConfigDirPath(relPath: string): boolean {
@@ -303,7 +304,9 @@ export class CollaborativeSyncEngine {
           if (folderItemId) {
             await this.graph.deleteItem(this.target.driveId, folderItemId);
           }
-          delete this.store.folders![trackedFolder];
+          if (this.store.folders) {
+            delete this.store.folders[trackedFolder];
+          }
         }
       }
       if ((summary.deleted || 0) > 0) {
@@ -795,18 +798,7 @@ export class CollaborativeSyncEngine {
     remove?: (p: string) => Promise<void>;
     rmdir?: (p: string, recursive: boolean) => Promise<void>;
   } | undefined {
-    return (this.vault as unknown as { adapter?: Record<string, unknown> }).adapter as
-      | {
-          exists?: (p: string) => Promise<boolean>;
-          read?: (p: string) => Promise<string>;
-          readBinary?: (p: string) => Promise<ArrayBuffer>;
-          write?: (p: string, d: string) => Promise<void>;
-          writeBinary?: (p: string, d: ArrayBuffer) => Promise<void>;
-          mkdir?: (p: string) => Promise<void>;
-          remove?: (p: string) => Promise<void>;
-          rmdir?: (p: string, recursive: boolean) => Promise<void>;
-        }
-      | undefined;
+    return this.vault.adapter;
   }
 
   private async readTextByPath(relPath: string): Promise<string> {

@@ -1,7 +1,7 @@
 {
   "id": "entra-sharepoint-sync",
   "name": "OneDrive, Enterprise SharePoint + Teams Sync",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "minAppVersion": "1.5.0",
   "description": "Collaborative vault sync, per-vault sharing, 3-way merge, and version history backed by Microsoft Entra ID, SharePoint, and OneDrive.",
   "author": "Wouter Van Ranst",
