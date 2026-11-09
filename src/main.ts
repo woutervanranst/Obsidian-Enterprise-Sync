@@ -1,7 +1,7 @@
-import { App, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile } from "obsidian";
+import { App, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder } from "obsidian";
 import { AuthTokens, EntraPkceAuth } from "./auth";
 import { GraphVaultClient, RemoteVaultTarget } from "./graph";
-import { CollaborativeSyncEngine, SyncStore } from "./sync";
+import { CollaborativeSyncEngine, SyncStore, isIgnoredVaultPath } from "./sync";
 import { VersionHistoryModal } from "./historyModal";
 import { ShareVaultModal } from "./shareModal";
 import { SyncLogger, defaultLogger } from "./logger";
@@ -92,27 +92,74 @@ export default class EntraSharePointSyncPlugin extends Plugin {
       this.openActiveFileHistory();
     });
 
-    // Auto-push when user modifies a Markdown note (debounced)
+    // Auto-push when user creates or modifies a note or attachment (debounced)
+    const schedulePush = (abstractFile: unknown) => {
+      if (
+        this.syncEngine &&
+        abstractFile instanceof TFile &&
+        !isIgnoredVaultPath(abstractFile.path) &&
+        !this.syncEngine.isPathSuppressed(abstractFile.path)
+      ) {
+        if (this.modifyTimeoutId !== null) {
+          window.clearTimeout(this.modifyTimeoutId);
+        }
+        this.modifyTimeoutId = window.setTimeout(async () => {
+          try {
+            await this.syncEngine?.pushFile(abstractFile);
+            this.updateStatusBar("Synced");
+          } catch (err) {
+            this.logger.error(`Auto-push failed for ${abstractFile.path}`, String(err));
+            this.updateStatusBar("Sync Error");
+          }
+        }, 800);
+      }
+    };
+
+    this.registerEvent(this.app.vault.on("create", schedulePush));
+    this.registerEvent(this.app.vault.on("modify", schedulePush));
+
+    // Propagate local file & folder deletions to SharePoint / OneDrive
     this.registerEvent(
-      this.app.vault.on("modify", (abstractFile) => {
+      this.app.vault.on("delete", (abstractFile) => {
         if (
           this.syncEngine &&
-          abstractFile instanceof TFile &&
-          abstractFile.extension === "md" &&
-          !this.syncEngine.isPathSuppressed(abstractFile.path)
+          (abstractFile instanceof TFile || abstractFile instanceof TFolder) &&
+          !isIgnoredVaultPath(abstractFile.path) &&
+          !this.syncEngine.isDeleteSuppressed(abstractFile.path)
         ) {
-          if (this.modifyTimeoutId !== null) {
-            window.clearTimeout(this.modifyTimeoutId);
-          }
-          this.modifyTimeoutId = window.setTimeout(async () => {
-            try {
-              await this.syncEngine?.pushMarkdownFile(abstractFile);
-              this.updateStatusBar("Synced");
-            } catch (err) {
-              this.logger.error(`Auto-push failed for ${abstractFile.path}`, String(err));
+          const isFolder = abstractFile instanceof TFolder;
+          void this.syncEngine
+            .deleteLocalPath(abstractFile.path, isFolder)
+            .then(() => this.updateStatusBar("Synced"))
+            .catch((err) => {
+              this.logger.error(
+                `Remote delete failed for ${abstractFile.path}`,
+                String(err)
+              );
               this.updateStatusBar("Sync Error");
-            }
-          }, 800);
+            });
+        }
+      })
+    );
+
+    // Propagate local file & folder renames/moves to SharePoint / OneDrive
+    this.registerEvent(
+      this.app.vault.on("rename", (abstractFile, oldPath) => {
+        if (
+          this.syncEngine &&
+          (abstractFile instanceof TFile || abstractFile instanceof TFolder) &&
+          !isIgnoredVaultPath(abstractFile.path)
+        ) {
+          void this.syncEngine
+            .renameLocalPath(oldPath, abstractFile)
+            .then(() => this.updateStatusBar("Synced"))
+            .catch((err) => {
+              this.logger.error(
+                `Remote rename failed from ${oldPath} to ${abstractFile.path}`,
+                String(err)
+              );
+              this.updateStatusBar("Sync Error");
+            });
         }
       })
     );
@@ -215,8 +262,8 @@ export default class EntraSharePointSyncPlugin extends Plugin {
       if (!silent) {
         new Notice(
           `Entra Sync complete: ↓${summary.pulled} ↑${summary.pushed}${
-            summary.merged > 0 ? ` (merged: ${summary.merged})` : ""
-          }`
+            summary.deleted ? ` 🗑${summary.deleted}` : ""
+          }${summary.merged > 0 ? ` (merged: ${summary.merged})` : ""}`
         );
       }
     } catch (err) {

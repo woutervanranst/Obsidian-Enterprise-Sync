@@ -182,14 +182,29 @@ export function createMockGraphServer({ port = 0, host = "0.0.0.0", baseUrlOverr
     res.end(body);
   }
 
-  function sendText(res, status, text) {
+  function sendBuffer(res, status, buf, contentType = "application/octet-stream") {
     res.writeHead(status, {
-      "Content-Type": "text/plain; charset=utf-8",
+      "Content-Type": contentType,
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Headers": "*",
       "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
     });
-    res.end(text);
+    res.end(buf);
+  }
+
+  function markDeletedRecursive(drive, targetItem) {
+    targetItem.deleted = { state: "deleted" };
+    targetItem.eTag = `"etag-${globalSeq++}"`;
+    drive.deltaSeq.set(targetItem.id, globalSeq++);
+    if (targetItem.folder) {
+      for (const child of drive.items.values()) {
+        if (child.id !== targetItem.id && isDescendantOf(drive, child, targetItem.id)) {
+          child.deleted = { state: "deleted" };
+          child.eTag = `"etag-${globalSeq++}"`;
+          drive.deltaSeq.set(child.id, globalSeq++);
+        }
+      }
+    }
   }
 
   const server = http.createServer(async (req, res) => {
@@ -222,7 +237,8 @@ export function createMockGraphServer({ port = 0, host = "0.0.0.0", baseUrlOverr
     for await (const chunk of req) {
       chunks.push(chunk);
     }
-    const rawBody = Buffer.concat(chunks).toString("utf8");
+    const rawBuffer = Buffer.concat(chunks);
+    const rawBody = rawBuffer.toString("utf8");
 
     const effectiveBase =
       baseUrlOverride || `http://${req.headers.host || "localhost"}/v1.0`;
@@ -470,6 +486,7 @@ export function createMockGraphServer({ port = 0, host = "0.0.0.0", baseUrlOverr
             path: parentPath,
           },
           content: rawBody,
+          contentBuffer: rawBuffer,
           lastModifiedDateTime: nowIso,
           lastModifiedBy: authorInfo,
           versions: [
@@ -477,8 +494,9 @@ export function createMockGraphServer({ port = 0, host = "0.0.0.0", baseUrlOverr
               id: "1.0",
               lastModifiedDateTime: nowIso,
               lastModifiedBy: authorInfo,
-              size: Buffer.byteLength(rawBody, "utf8"),
+              size: rawBuffer.length,
               content: rawBody,
+              contentBuffer: rawBuffer,
             },
           ],
         };
@@ -489,6 +507,7 @@ export function createMockGraphServer({ port = 0, host = "0.0.0.0", baseUrlOverr
         existingFile.eTag = newETag;
         existingFile.cTag = newETag;
         existingFile.content = rawBody;
+        existingFile.contentBuffer = rawBuffer;
         existingFile.lastModifiedDateTime = nowIso;
         existingFile.lastModifiedBy = authorInfo;
         existingFile.versions = existingFile.versions || [];
@@ -497,8 +516,9 @@ export function createMockGraphServer({ port = 0, host = "0.0.0.0", baseUrlOverr
           id: nextVerNum,
           lastModifiedDateTime: nowIso,
           lastModifiedBy: authorInfo,
-          size: Buffer.byteLength(rawBody, "utf8"),
+          size: rawBuffer.length,
           content: rawBody,
+          contentBuffer: rawBuffer,
         });
         drive.deltaSeq.set(existingFile.id, globalSeq++);
       }
@@ -529,7 +549,12 @@ export function createMockGraphServer({ port = 0, host = "0.0.0.0", baseUrlOverr
         sendJson(res, 404, { error: { code: "itemNotFound" } });
         return;
       }
-      sendText(res, 200, ver.content);
+      sendBuffer(
+        res,
+        200,
+        ver.contentBuffer || Buffer.from(ver.content || "", "utf8"),
+        "text/plain; charset=utf-8"
+      );
       return;
     }
 
@@ -559,21 +584,72 @@ export function createMockGraphServer({ port = 0, host = "0.0.0.0", baseUrlOverr
       const [, driveId, itemId] = itemContentMatch;
       const drive = drives.get(driveId);
       const item = drive?.items.get(itemId);
-      if (!item) {
+      if (!item || item.deleted) {
         sendJson(res, 404, { error: { code: "itemNotFound" } });
         return;
       }
-      sendText(res, 200, item.content ?? "");
+      sendBuffer(
+        res,
+        200,
+        item.contentBuffer || Buffer.from(item.content ?? "", "utf8"),
+        "application/octet-stream"
+      );
       return;
     }
 
-    // 13. GET /v1.0/drives/:driveId/items/:itemId
+    // 13. DELETE /v1.0/drives/:driveId/items/:rootItemId:/:relativePath
+    const deleteByPathMatch = pathname.match(
+      /^\/v1\.0\/drives\/([^/]+)\/items\/([^/:]+):\/(.+?)$/
+    );
+    if (req.method === "DELETE" && deleteByPathMatch) {
+      const [, driveId, rootItemId, encodedRelPath] = deleteByPathMatch;
+      const drive = drives.get(driveId);
+      if (!drive) {
+        sendJson(res, 404, { error: { code: "itemNotFound" } });
+        return;
+      }
+      const targetItem = findFolderByPath(drive, rootItemId, encodedRelPath);
+      if (!targetItem || targetItem.deleted) {
+        sendJson(res, 404, { error: { code: "itemNotFound" } });
+        return;
+      }
+      markDeletedRecursive(drive, targetItem);
+      res.writeHead(204, {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "*",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+      });
+      res.end();
+      return;
+    }
+
+    // 14. DELETE /v1.0/drives/:driveId/items/:itemId
+    const deleteItemMatch = pathname.match(/^\/v1\.0\/drives\/([^/]+)\/items\/([^/:]+)$/);
+    if (req.method === "DELETE" && deleteItemMatch) {
+      const [, driveId, itemId] = deleteItemMatch;
+      const drive = drives.get(driveId);
+      const item = drive?.items.get(itemId);
+      if (!item || item.deleted) {
+        sendJson(res, 404, { error: { code: "itemNotFound" } });
+        return;
+      }
+      markDeletedRecursive(drive, item);
+      res.writeHead(204, {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "*",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+      });
+      res.end();
+      return;
+    }
+
+    // 15. GET /v1.0/drives/:driveId/items/:itemId
     const itemMetaMatch = pathname.match(/^\/v1\.0\/drives\/([^/]+)\/items\/([^/]+)$/);
     if (req.method === "GET" && itemMetaMatch) {
       const [, driveId, itemId] = itemMetaMatch;
       const drive = drives.get(driveId);
       const item = drive?.items.get(itemId);
-      if (!item) {
+      if (!item || item.deleted) {
         sendJson(res, 404, { error: { code: "itemNotFound" } });
         return;
       }

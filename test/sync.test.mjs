@@ -25,6 +25,9 @@ class MockVault {
     this.files = new Map();
     this.folders = new Map();
   }
+  getFiles() {
+    return Array.from(this.files.values()).map((f) => f.file);
+  }
   getMarkdownFiles() {
     return Array.from(this.files.values()).filter((f) => f.file.extension === "md").map((f) => f.file);
   }
@@ -36,9 +39,27 @@ class MockVault {
   async read(file) {
     return this.files.get(file.path)?.content ?? "";
   }
+  async readBinary(file) {
+    const entry = this.files.get(file.path);
+    if (entry?.binary) return entry.binary;
+    const text = entry?.content ?? "";
+    const u8 = Buffer.from(text, "utf8");
+    return u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
+  }
   async create(path, content) {
     const file = new MockTFile(path, content);
     this.files.set(path, { file, content });
+    return file;
+  }
+  async createBinary(path, arrayBuffer) {
+    const buf = Buffer.from(arrayBuffer);
+    const file = new MockTFile(path, "");
+    file.stat.size = buf.byteLength;
+    this.files.set(path, {
+      file,
+      content: "",
+      binary: buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength),
+    });
     return file;
   }
   async modify(file, content) {
@@ -51,8 +72,27 @@ class MockVault {
       await this.create(file.path, content);
     }
   }
-  async delete(file) {
-    this.files.delete(file.path);
+  async modifyBinary(file, arrayBuffer) {
+    const buf = Buffer.from(arrayBuffer);
+    const entry = this.files.get(file.path);
+    if (entry) {
+      entry.binary = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+      entry.file.stat.mtime = Date.now();
+      entry.file.stat.size = buf.byteLength;
+    } else {
+      await this.createBinary(file.path, arrayBuffer);
+    }
+  }
+  async delete(fileOrFolder) {
+    this.files.delete(fileOrFolder.path);
+    this.folders.delete(fileOrFolder.path);
+    const prefix = `${fileOrFolder.path}/`;
+    for (const k of Array.from(this.files.keys())) {
+      if (k.startsWith(prefix)) this.files.delete(k);
+    }
+    for (const k of Array.from(this.folders.keys())) {
+      if (k.startsWith(prefix)) this.folders.delete(k);
+    }
   }
   async createFolder(path) {
     const folder = new MockTFolder(path);
@@ -74,9 +114,10 @@ const obsidianMock = {
     const res = await fetch(url, {
       method,
       headers,
-      body,
+      body: body instanceof ArrayBuffer ? Buffer.from(body) : body,
     });
-    const text = await res.text();
+    const arrayBuffer = await res.arrayBuffer();
+    const text = Buffer.from(arrayBuffer).toString("utf8");
     let json = null;
     try {
       json = JSON.parse(text);
@@ -90,6 +131,7 @@ const obsidianMock = {
       status: res.status,
       text,
       json,
+      arrayBuffer,
     };
   },
 };
@@ -347,6 +389,62 @@ test("End-to-end Microsoft Entra ID Auth + SharePoint/OneDrive Graph Vault Shari
       itemId
     );
     assert.equal(fallbackResult.text, mergedContent);
+
+    // 12. Verify Binary Attachment Sync (.png image inside subfolder)
+    await aliceObsidianVault.createFolder("assets");
+    const pngBytes = new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff, 0xfe, 0xfd, 0x42,
+    ]);
+    const pngArrayBuffer = pngBytes.buffer.slice(
+      pngBytes.byteOffset,
+      pngBytes.byteOffset + pngBytes.byteLength
+    );
+    await aliceObsidianVault.createBinary("assets/architecture.png", pngArrayBuffer);
+
+    const aliceAttachmentSync = await aliceSync.syncAll();
+    assert.equal(aliceAttachmentSync.pushed, 1, "Alice should push binary attachment");
+
+    const bobAttachmentSync = await bobSync.syncAll();
+    assert.equal(bobAttachmentSync.pulled, 1, "Bob should pull binary attachment");
+    const bobPngFile = bobObsidianVault.getAbstractFileByPath("assets/architecture.png");
+    assert.ok(bobPngFile, "Bob vault should have assets/architecture.png");
+    const bobPngBytes = new Uint8Array(await bobObsidianVault.readBinary(bobPngFile));
+    assert.deepEqual(
+      Array.from(bobPngBytes),
+      Array.from(pngBytes),
+      "Binary attachment bytes must match identically"
+    );
+
+    // 13. Verify Bidirectional Page (File) Deletion: Alice deletes Roadmap.md locally -> deleted on Bob's vault
+    await aliceObsidianVault.delete(aliceFile);
+    const aliceDeleteSync = await aliceSync.syncAll();
+    assert.equal(aliceDeleteSync.deleted, 1, "Alice should delete Roadmap.md remotely");
+
+    const bobAfterFileDelete = await bobSync.syncAll();
+    assert.ok(bobAfterFileDelete.pulled >= 1);
+    assert.equal(
+      bobObsidianVault.getAbstractFileByPath("Roadmap.md"),
+      null,
+      "Roadmap.md should be deleted from Bob's vault"
+    );
+
+    // 14. Verify Bidirectional Folder Deletion: Bob deletes folder 'assets' -> deleted on Alice's vault
+    const bobAssetsFolder = bobObsidianVault.getAbstractFileByPath("assets");
+    assert.ok(bobAssetsFolder);
+    await bobObsidianVault.delete(bobAssetsFolder);
+    await bobSync.deleteLocalPath("assets", true);
+
+    await aliceSync.syncAll();
+    assert.equal(
+      aliceObsidianVault.getAbstractFileByPath("assets/architecture.png"),
+      null,
+      "assets/architecture.png should be deleted from Alice's vault"
+    );
+    assert.equal(
+      aliceObsidianVault.getAbstractFileByPath("assets"),
+      null,
+      "assets folder should be deleted from Alice's vault"
+    );
   } finally {
     await mockGraph.stop();
   }

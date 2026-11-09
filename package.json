@@ -1,6 +1,6 @@
 {
   "name": "obsidian-entra-sync",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Self-hosted enterprise Obsidian sync with Entra ID authentication, SharePoint/OneDrive per-vault sharing, 3-way conflict merge, and version history.",
   "private": true,
   "scripts": {

@@ -47,7 +47,7 @@ interface GraphRequestOptions {
   url: string;
   method?: string;
   extraHeaders?: Record<string, string>;
-  body?: string;
+  body?: string | ArrayBuffer;
   throwOnError?: boolean;
   omitAuth?: boolean;
 }
@@ -434,10 +434,10 @@ export class GraphVaultClient {
     return { items, nextDeltaLink };
   }
 
-  async downloadFileText(
+  private async fetchItemContentResponse(
     driveId: string,
     itemId: string
-  ): Promise<{ text: string; eTag: string; lastModifiedBy?: string }> {
+  ): Promise<{ metaRes: RequestUrlResponse; contentRes: RequestUrlResponse }> {
     const base = this.baseUrl();
     const metaRes = await this.graphRequest({
       url: `${base}/drives/${driveId}/items/${itemId}`,
@@ -487,12 +487,36 @@ export class GraphVaultClient {
       );
     }
 
+    return { metaRes, contentRes };
+  }
+
+  async downloadFileText(
+    driveId: string,
+    itemId: string
+  ): Promise<{ text: string; eTag: string; lastModifiedBy?: string }> {
+    const { metaRes, contentRes } = await this.fetchItemContentResponse(driveId, itemId);
     const author =
       metaRes.json?.lastModifiedBy?.user?.displayName ||
       metaRes.json?.lastModifiedBy?.user?.email;
 
     return {
       text: contentRes.text,
+      eTag: metaRes.json?.eTag ?? "",
+      lastModifiedBy: author,
+    };
+  }
+
+  async downloadFileBinary(
+    driveId: string,
+    itemId: string
+  ): Promise<{ data: ArrayBuffer; eTag: string; lastModifiedBy?: string }> {
+    const { metaRes, contentRes } = await this.fetchItemContentResponse(driveId, itemId);
+    const author =
+      metaRes.json?.lastModifiedBy?.user?.displayName ||
+      metaRes.json?.lastModifiedBy?.user?.email;
+
+    return {
+      data: contentRes.arrayBuffer,
       eTag: metaRes.json?.eTag ?? "",
       lastModifiedBy: author,
     };
@@ -537,6 +561,99 @@ export class GraphVaultClient {
       status: res.status,
       item: res.status >= 200 && res.status < 300 ? res.json : undefined,
     };
+  }
+
+  /**
+   * Upload binary attachment content with optimistic concurrency (If-Match: eTag).
+   */
+  async uploadFileBinary(
+    target: RemoteVaultTarget,
+    relativePath: string,
+    data: ArrayBuffer,
+    expectedETag?: string
+  ): Promise<{ status: number; item?: DeltaDriveItem }> {
+    const extra: Record<string, string> = { "Content-Type": "application/octet-stream" };
+    if (expectedETag) {
+      extra["If-Match"] = expectedETag;
+    }
+    const base = this.baseUrl();
+    const encodedPath = relativePath
+      .split("/")
+      .map((seg) => encodeURIComponent(seg))
+      .join("/");
+
+    const url = `${base}/drives/${target.driveId}/items/${target.rootItemId}:/${encodedPath}:/content`;
+    const res = await this.graphRequest({
+      url,
+      method: "PUT",
+      extraHeaders: extra,
+      body: data,
+      throwOnError: false,
+    });
+
+    if (res.status !== 412 && (res.status < 200 || res.status >= 300)) {
+      throw new Error(
+        `Graph PUT ${this.sanitizeUrl(url)} failed (${res.status}): ${this.formatErrorSummary(res)}`
+      );
+    }
+
+    return {
+      status: res.status,
+      item: res.status >= 200 && res.status < 300 ? res.json : undefined,
+    };
+  }
+
+  /**
+   * Delete a file or folder by itemId on SharePoint / OneDrive.
+   * Treats 404 (already deleted) as success.
+   */
+  async deleteItem(driveId: string, itemId: string): Promise<boolean> {
+    const base = this.baseUrl();
+    const url = `${base}/drives/${driveId}/items/${itemId}`;
+    const res = await this.graphRequest({
+      url,
+      method: "DELETE",
+      throwOnError: false,
+    });
+    if (res.status === 404) {
+      return false;
+    }
+    if (res.status < 200 || res.status >= 300) {
+      throw new Error(
+        `Graph DELETE ${this.sanitizeUrl(url)} failed (${res.status}): ${this.formatErrorSummary(res)}`
+      );
+    }
+    return true;
+  }
+
+  /**
+   * Delete a file or folder by relative path inside the vault root on SharePoint / OneDrive.
+   * Useful for deleting folders whose itemId wasn't cached.
+   */
+  async deleteItemByPath(
+    target: RemoteVaultTarget,
+    relativePath: string
+  ): Promise<boolean> {
+    const base = this.baseUrl();
+    const encodedPath = relativePath
+      .split("/")
+      .map((seg) => encodeURIComponent(seg))
+      .join("/");
+    const url = `${base}/drives/${target.driveId}/items/${target.rootItemId}:/${encodedPath}`;
+    const res = await this.graphRequest({
+      url,
+      method: "DELETE",
+      throwOnError: false,
+    });
+    if (res.status === 404) {
+      return false;
+    }
+    if (res.status < 200 || res.status >= 300) {
+      throw new Error(
+        `Graph DELETE ${this.sanitizeUrl(url)} failed (${res.status}): ${this.formatErrorSummary(res)}`
+      );
+    }
+    return true;
   }
 
   /**
