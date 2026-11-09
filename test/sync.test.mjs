@@ -22,11 +22,70 @@ class MockTFolder {
 
 class MockVault {
   constructor() {
+    this.configDir = ".obsidian";
     this.files = new Map();
     this.folders = new Map();
+    this.adapter = {
+      exists: async (p) => this.files.has(p) || this.folders.has(p),
+      list: async (dir) => {
+        const clean = dir.replace(/^\/+|\/+$/g, "");
+        const prefix = clean ? `${clean}/` : "";
+        const files = [];
+        const folders = [];
+        for (const k of this.files.keys()) {
+          if (k.startsWith(prefix)) {
+            const rest = k.slice(prefix.length);
+            if (rest && !rest.includes("/")) {
+              files.push(k);
+            }
+          }
+        }
+        for (const k of this.folders.keys()) {
+          if (k.startsWith(prefix)) {
+            const rest = k.slice(prefix.length);
+            if (rest && !rest.includes("/")) {
+              folders.push(k);
+            }
+          }
+        }
+        return { files, folders };
+      },
+      read: async (p) => this.files.get(p)?.content ?? "",
+      readBinary: async (p) => {
+        const entry = this.files.get(p);
+        if (entry?.binary) return entry.binary;
+        const u8 = Buffer.from(entry?.content ?? "", "utf8");
+        return u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
+      },
+      write: async (p, content) => {
+        await this.create(p, content);
+      },
+      writeBinary: async (p, arrayBuffer) => {
+        await this.createBinary(p, arrayBuffer);
+      },
+      mkdir: async (p) => {
+        await this.createFolder(p);
+      },
+      remove: async (p) => {
+        this.files.delete(p);
+      },
+      rmdir: async (p) => {
+        this.folders.delete(p);
+        const prefix = `${p}/`;
+        for (const k of Array.from(this.files.keys())) {
+          if (k.startsWith(prefix)) this.files.delete(k);
+        }
+        for (const k of Array.from(this.folders.keys())) {
+          if (k.startsWith(prefix)) this.folders.delete(k);
+        }
+      },
+    };
   }
   getFiles() {
-    return Array.from(this.files.values()).map((f) => f.file);
+    // Just like real Obsidian, vault.getFiles() does NOT return .obsidian/ config files
+    return Array.from(this.files.values())
+      .map((f) => f.file)
+      .filter((f) => !f.path.startsWith(".obsidian/"));
   }
   getMarkdownFiles() {
     return Array.from(this.files.values()).filter((f) => f.file.extension === "md").map((f) => f.file);
@@ -444,6 +503,57 @@ test("End-to-end Microsoft Entra ID Auth + SharePoint/OneDrive Graph Vault Shari
       aliceObsidianVault.getAbstractFileByPath("assets"),
       null,
       "assets folder should be deleted from Alice's vault"
+    );
+
+    // 15. Verify Vault-Specific Settings (.obsidian/) Sync & Security Exclusions
+    await aliceObsidianVault.adapter.mkdir(".obsidian");
+    await aliceObsidianVault.adapter.mkdir(".obsidian/snippets");
+    await aliceObsidianVault.adapter.mkdir(".obsidian/plugins");
+    await aliceObsidianVault.adapter.mkdir(".obsidian/plugins/obsidian-entra-sync");
+    await aliceObsidianVault.adapter.write(
+      ".obsidian/app.json",
+      JSON.stringify({ strictLineBreaks: true, showLineNumber: true }, null, 2)
+    );
+    await aliceObsidianVault.adapter.write(
+      ".obsidian/snippets/enterprise.css",
+      "body { --font-text-size: 16px; }"
+    );
+    // Personal files that MUST NEVER be synced across users:
+    await aliceObsidianVault.adapter.write(
+      ".obsidian/workspace.json",
+      JSON.stringify({ main: "alice-personal-tabs" })
+    );
+    await aliceObsidianVault.adapter.write(
+      ".obsidian/plugins/obsidian-entra-sync/data.json",
+      JSON.stringify({ tokens: { accessToken: "SECRET-ALICE-TOKEN" } })
+    );
+
+    const aliceConfigSync = await aliceSync.syncAll();
+    assert.equal(
+      aliceConfigSync.pushed,
+      2,
+      "Should push .obsidian/app.json and .obsidian/snippets/enterprise.css, excluding workspace.json and plugin data.json"
+    );
+
+    const bobConfigSync = await bobSync.syncAll();
+    assert.ok(bobConfigSync.pulled >= 2);
+    assert.equal(
+      await bobObsidianVault.adapter.read(".obsidian/app.json"),
+      JSON.stringify({ strictLineBreaks: true, showLineNumber: true }, null, 2)
+    );
+    assert.equal(
+      await bobObsidianVault.adapter.read(".obsidian/snippets/enterprise.css"),
+      "body { --font-text-size: 16px; }"
+    );
+    assert.equal(
+      await bobObsidianVault.adapter.exists(".obsidian/workspace.json"),
+      false,
+      "Personal workspace.json must never sync to other users"
+    );
+    assert.equal(
+      await bobObsidianVault.adapter.exists(".obsidian/plugins/obsidian-entra-sync/data.json"),
+      false,
+      "Personal Entra ID tokens in obsidian-entra-sync/data.json must never sync to other users"
     );
   } finally {
     await mockGraph.stop();

@@ -54,15 +54,46 @@ export function isTextPath(relPath: string): boolean {
   return TEXT_EXTENSIONS.has(ext);
 }
 
-export function isIgnoredVaultPath(relPath: string): boolean {
+export function isIgnoredVaultPath(
+  relPath: string,
+  syncObsidianConfig = false,
+  configDir = ".obsidian"
+): boolean {
   const normalized = relPath.replace(/^\/+/, "");
   if (!normalized) return true;
-  return (
-    normalized === ".obsidian" ||
-    normalized.startsWith(".obsidian/") ||
+  if (
+    normalized === ".DS_Store" ||
     normalized.endsWith("/.DS_Store") ||
-    normalized === ".DS_Store"
-  );
+    normalized === ".git" ||
+    normalized.startsWith(".git/") ||
+    normalized === ".trash" ||
+    normalized.startsWith(".trash/")
+  ) {
+    return true;
+  }
+
+  const cleanConfigDir = (configDir || ".obsidian").replace(/^\/+|\/+$/g, "");
+  if (
+    normalized === cleanConfigDir ||
+    normalized.startsWith(`${cleanConfigDir}/`)
+  ) {
+    if (!syncObsidianConfig) {
+      return true;
+    }
+    const subPath = normalized.slice(cleanConfigDir.length).replace(/^\/+/, "");
+    // Never sync personal Entra ID tokens/sync state or per-user workspace layout
+    if (
+      subPath === "workspace.json" ||
+      subPath === "workspace-mobile.json" ||
+      subPath === "plugins/obsidian-entra-sync/data.json" ||
+      subPath.startsWith("plugins/obsidian-entra-sync/data.json")
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  return false;
 }
 
 export function hashBinaryBuffer(buf: ArrayBuffer): string {
@@ -92,11 +123,31 @@ export class CollaborativeSyncEngine {
     private store: SyncStore,
     private saveStore: () => Promise<void>,
     private onStatusChange?: (statusText: string) => void,
-    private logger: SyncLogger = defaultLogger
+    private logger: SyncLogger = defaultLogger,
+    private shouldSyncObsidianConfig: () => boolean = () => true
   ) {
     if (!this.store.folders) {
       this.store.folders = {};
     }
+  }
+
+  private getConfigDir(): string {
+    const v = this.vault as unknown as { configDir?: string };
+    return (v.configDir || ".obsidian").replace(/^\/+|\/+$/g, "");
+  }
+
+  private isConfigDirPath(relPath: string): boolean {
+    const normalized = relPath.replace(/^\/+/, "");
+    const cfg = this.getConfigDir();
+    return normalized === cfg || normalized.startsWith(`${cfg}/`);
+  }
+
+  private isIgnored(relPath: string): boolean {
+    return isIgnoredVaultPath(
+      relPath,
+      this.shouldSyncObsidianConfig(),
+      this.getConfigDir()
+    );
   }
 
   isPathSuppressed(path: string): boolean {
@@ -113,7 +164,76 @@ export class CollaborativeSyncEngine {
       "function"
         ? (this.vault as unknown as { getFiles: () => TFile[] }).getFiles()
         : this.vault.getMarkdownFiles();
-    return allFiles.filter((f) => !isIgnoredVaultPath(f.path));
+    return allFiles.filter(
+      (f) => !this.isConfigDirPath(f.path) && !this.isIgnored(f.path)
+    );
+  }
+
+  /**
+   * Lists all syncable files inside `.obsidian/` via `vault.adapter.list()`.
+   */
+  private async listSyncableConfigFiles(): Promise<string[]> {
+    if (!this.shouldSyncObsidianConfig()) {
+      return [];
+    }
+    const cfgDir = this.getConfigDir();
+    const adapter = (this.vault as unknown as {
+      adapter?: {
+        exists?: (p: string) => Promise<boolean>;
+        list?: (p: string) => Promise<{ files: string[]; folders: string[] }>;
+      };
+    }).adapter;
+
+    if (!adapter || typeof adapter.list !== "function") {
+      return [];
+    }
+
+    const result: string[] = [];
+    const queue: string[] = [cfgDir];
+    const visited = new Set<string>();
+
+    while (queue.length > 0) {
+      const currentDir = queue.shift()!;
+      if (visited.has(currentDir)) continue;
+      visited.add(currentDir);
+
+      try {
+        if (typeof adapter.exists === "function") {
+          const exists = await adapter.exists(currentDir);
+          if (!exists) continue;
+        }
+        const listed = await adapter.list(currentDir);
+        for (const f of listed.files || []) {
+          const norm = f.replace(/^\/+/, "");
+          if (!this.isIgnored(norm)) {
+            result.push(norm);
+          }
+        }
+        for (const sub of listed.folders || []) {
+          const normSub = sub.replace(/^\/+/, "");
+          if (!this.isIgnored(normSub)) {
+            queue.push(normSub);
+          }
+        }
+      } catch {
+        // Ignore unreadable config subdirectories
+      }
+    }
+
+    return result;
+  }
+
+  private async localPathExists(relPath: string): Promise<boolean> {
+    if (this.vault.getAbstractFileByPath(relPath)) {
+      return true;
+    }
+    const adapter = (this.vault as unknown as {
+      adapter?: { exists?: (p: string) => Promise<boolean> };
+    }).adapter;
+    if (adapter && typeof adapter.exists === "function") {
+      return await adapter.exists(relPath);
+    }
+    return false;
   }
 
   /**
@@ -152,7 +272,10 @@ export class CollaborativeSyncEngine {
 
       // Reconcile local file deletions (tracked files that no longer exist locally)
       for (const [trackedPath, state] of Object.entries({ ...this.store.files })) {
-        const localExists = this.vault.getAbstractFileByPath(trackedPath);
+        if (this.isConfigDirPath(trackedPath) && !this.shouldSyncObsidianConfig()) {
+          continue;
+        }
+        const localExists = await this.localPathExists(trackedPath);
         if (!localExists) {
           this.logger.info(`Local file deleted: '${trackedPath}' -> deleting remote item ${state.itemId}`);
           if (state.itemId) {
@@ -167,7 +290,10 @@ export class CollaborativeSyncEngine {
       for (const [trackedFolder, folderItemId] of Object.entries({
         ...(this.store.folders || {}),
       })) {
-        const localFolder = this.vault.getAbstractFileByPath(trackedFolder);
+        if (this.isConfigDirPath(trackedFolder) && !this.shouldSyncObsidianConfig()) {
+          continue;
+        }
+        const localFolder = await this.localPathExists(trackedFolder);
         if (!localFolder) {
           this.logger.info(
             `Local folder deleted: '${trackedFolder}' -> deleting remote folder ${folderItemId}`
@@ -190,6 +316,15 @@ export class CollaborativeSyncEngine {
         summary.conflicts += pushStats.conflicts;
       }
 
+      // Also sync vault-specific settings inside .obsidian/ when enabled
+      const configFiles = await this.listSyncableConfigFiles();
+      for (const cfgPath of configFiles) {
+        const pushStats = await this.pushPath(cfgPath);
+        summary.pushed += pushStats.pushed;
+        summary.merged += pushStats.merged;
+        summary.conflicts += pushStats.conflicts;
+      }
+
       this.logger.info("Completed syncAll successfully", summary);
       this.onStatusChange?.(`Synced (${new Date().toLocaleTimeString()})`);
       return summary;
@@ -206,7 +341,7 @@ export class CollaborativeSyncEngine {
    * Immediately propagate a local file or folder deletion to SharePoint / OneDrive.
    */
   async deleteLocalPath(relPath: string, isFolder = false): Promise<number> {
-    if (this.suppressDeleteForPaths.has(relPath) || isIgnoredVaultPath(relPath)) {
+    if (this.suppressDeleteForPaths.has(relPath) || this.isIgnored(relPath)) {
       return 0;
     }
     if (!this.store.folders) {
@@ -265,7 +400,7 @@ export class CollaborativeSyncEngine {
     oldPath: string,
     newAbstract: TFile | TFolder
   ): Promise<void> {
-    if (isIgnoredVaultPath(newAbstract.path)) return;
+    if (this.isIgnored(newAbstract.path)) return;
     const isFolder = newAbstract instanceof TFolder;
     await this.deleteLocalPath(oldPath, isFolder);
 
@@ -322,14 +457,11 @@ export class CollaborativeSyncEngine {
           this.findTrackedFolderPathByItemId(item.id) ||
           (item.folder ? this.resolveRelativePath(item) : undefined);
 
-        if (trackedFolderPath && !isIgnoredVaultPath(trackedFolderPath)) {
+        if (trackedFolderPath && !this.isIgnored(trackedFolderPath)) {
           const prefix = `${trackedFolderPath}/`;
           for (const trackedFile of Object.keys({ ...this.store.files })) {
             if (trackedFile.startsWith(prefix)) {
-              const existingChild = this.vault.getAbstractFileByPath(trackedFile);
-              if (existingChild) {
-                await this.deleteLocalSuppressed(existingChild);
-              }
+              await this.removePathSuppressed(trackedFile, false);
               delete this.store.files[trackedFile];
             }
           }
@@ -338,21 +470,15 @@ export class CollaborativeSyncEngine {
               delete this.store.folders[subFolder];
             }
           }
-          const existingFolder = this.vault.getAbstractFileByPath(trackedFolderPath);
-          if (existingFolder) {
-            await this.deleteLocalSuppressed(existingFolder);
-          }
+          await this.removePathSuppressed(trackedFolderPath, true);
           pulled++;
           continue;
         }
 
         const relPath =
           this.findTrackedFilePathByItemId(item.id) || this.resolveRelativePath(item);
-        if (relPath && !isIgnoredVaultPath(relPath)) {
-          const existingFile = this.vault.getAbstractFileByPath(relPath);
-          if (existingFile) {
-            await this.deleteLocalSuppressed(existingFile);
-          }
+        if (relPath && !this.isIgnored(relPath)) {
+          await this.removePathSuppressed(relPath, false);
           delete this.store.files[relPath];
           pulled++;
         }
@@ -360,7 +486,7 @@ export class CollaborativeSyncEngine {
       }
 
       const relPath = this.resolveRelativePath(item);
-      if (!relPath || isIgnoredVaultPath(relPath)) {
+      if (!relPath || this.isIgnored(relPath)) {
         continue;
       }
 
@@ -384,10 +510,10 @@ export class CollaborativeSyncEngine {
           item.id
         );
         const remoteHash = hashBinaryBuffer(remoteBin.data);
-        const localAbstract = this.vault.getAbstractFileByPath(relPath);
+        const existsLocally = await this.localPathExists(relPath);
 
-        if (localAbstract instanceof TFile) {
-          const localBuf = await this.readBinaryCompat(localAbstract);
+        if (existsLocally) {
+          const localBuf = await this.readBinaryByPath(relPath);
           const localHash = hashBinaryBuffer(localBuf);
 
           if (
@@ -397,12 +523,12 @@ export class CollaborativeSyncEngine {
           ) {
             // Concurrent binary edit: preserve local binary attachment as a conflict copy before writing remote
             const conflictPath = this.buildBinaryConflictPath(relPath);
-            await this.createBinarySuppressed(conflictPath, localBuf);
+            await this.writeBinaryByPathSuppressed(conflictPath, localBuf);
             conflicts++;
           }
 
           if (localHash !== remoteHash) {
-            await this.writeBinarySuppressed(localAbstract, remoteBin.data);
+            await this.writeBinaryByPathSuppressed(relPath, remoteBin.data);
           }
           this.store.files[relPath] = {
             itemId: item.id,
@@ -410,20 +536,20 @@ export class CollaborativeSyncEngine {
             baseText: "",
             isBinary: true,
             binaryHash: remoteHash,
-            lastSyncedMtime: localAbstract.stat.mtime,
+            lastSyncedMtime: Date.now(),
             lastModifiedBy: remoteBin.lastModifiedBy,
           };
           pulled++;
         } else {
           await this.ensureParentFolders(relPath);
-          const created = await this.createBinarySuppressed(relPath, remoteBin.data);
+          await this.writeBinaryByPathSuppressed(relPath, remoteBin.data);
           this.store.files[relPath] = {
             itemId: item.id,
             eTag: remoteBin.eTag || item.eTag || "",
             baseText: "",
             isBinary: true,
             binaryHash: remoteHash,
-            lastSyncedMtime: created.stat.mtime,
+            lastSyncedMtime: Date.now(),
             lastModifiedBy: remoteBin.lastModifiedBy,
           };
           pulled++;
@@ -431,23 +557,23 @@ export class CollaborativeSyncEngine {
         continue;
       }
 
-      // Text / Markdown file with 3-way diff3 merge
+      // Text / Markdown / JSON / CSS file with 3-way diff3 merge
       const remote = await this.graph.downloadFileText(this.target.driveId, item.id);
-      const localAbstract = this.vault.getAbstractFileByPath(relPath);
+      const existsLocally = await this.localPathExists(relPath);
 
-      if (localAbstract instanceof TFile) {
-        const localText = await this.vault.read(localAbstract);
+      if (existsLocally) {
+        const localText = await this.readTextByPath(relPath);
 
         if (!existingState || localText === existingState.baseText) {
           // Clean fast-forward update from colleague
           if (localText !== remote.text) {
-            await this.writeLocalSuppressed(localAbstract, remote.text);
+            await this.writeTextByPathSuppressed(relPath, remote.text);
           }
           this.store.files[relPath] = {
             itemId: item.id,
             eTag: remote.eTag || item.eTag || "",
             baseText: remote.text,
-            lastSyncedMtime: localAbstract.stat.mtime,
+            lastSyncedMtime: Date.now(),
             lastModifiedBy: remote.lastModifiedBy,
           };
           pulled++;
@@ -459,7 +585,7 @@ export class CollaborativeSyncEngine {
             localText,
             remote.text
           );
-          await this.writeLocalSuppressed(localAbstract, mergedText);
+          await this.writeTextByPathSuppressed(relPath, mergedText);
 
           const uploadRes = await this.graph.uploadFileText(
             this.target,
@@ -472,7 +598,7 @@ export class CollaborativeSyncEngine {
             itemId: finalItem.id,
             eTag: finalItem.eTag ?? remote.eTag,
             baseText: mergedText,
-            lastSyncedMtime: localAbstract.stat.mtime,
+            lastSyncedMtime: Date.now(),
             lastModifiedBy: remote.lastModifiedBy,
           };
           merged++;
@@ -481,20 +607,15 @@ export class CollaborativeSyncEngine {
       } else {
         // New file from SharePoint / OneDrive
         await this.ensureParentFolders(relPath);
-        this.suppressModifyForPaths.add(relPath);
-        try {
-          const created = await this.vault.create(relPath, remote.text);
-          this.store.files[relPath] = {
-            itemId: item.id,
-            eTag: remote.eTag || item.eTag || "",
-            baseText: remote.text,
-            lastSyncedMtime: created.stat.mtime,
-            lastModifiedBy: remote.lastModifiedBy,
-          };
-          pulled++;
-        } finally {
-          this.suppressModifyForPaths.delete(relPath);
-        }
+        await this.writeTextByPathSuppressed(relPath, remote.text);
+        this.store.files[relPath] = {
+          itemId: item.id,
+          eTag: remote.eTag || item.eTag || "",
+          baseText: remote.text,
+          lastSyncedMtime: Date.now(),
+          lastModifiedBy: remote.lastModifiedBy,
+        };
+        pulled++;
       }
     }
 
@@ -511,16 +632,25 @@ export class CollaborativeSyncEngine {
   async pushFile(
     file: TFile
   ): Promise<{ pushed: number; merged: number; conflicts: number }> {
-    if (this.suppressModifyForPaths.has(file.path) || isIgnoredVaultPath(file.path)) {
+    return this.pushPath(file.path);
+  }
+
+  /**
+   * Push a file by relative path (supports both standard vault files and `.obsidian/` config files).
+   */
+  async pushPath(
+    relPath: string
+  ): Promise<{ pushed: number; merged: number; conflicts: number }> {
+    if (this.suppressModifyForPaths.has(relPath) || this.isIgnored(relPath)) {
       return { pushed: 0, merged: 0, conflicts: 0 };
     }
 
-    if (!isTextPath(file.path)) {
-      return this.pushBinaryFile(file);
+    if (!isTextPath(relPath)) {
+      return this.pushBinaryPath(relPath);
     }
 
-    const localText = await this.vault.read(file);
-    const state = this.store.files[file.path];
+    const localText = await this.readTextByPath(relPath);
+    const state = this.store.files[relPath];
 
     if (state && !state.isBinary && localText === state.baseText) {
       return { pushed: 0, merged: 0, conflicts: 0 };
@@ -528,7 +658,7 @@ export class CollaborativeSyncEngine {
 
     const res = await this.graph.uploadFileText(
       this.target,
-      file.path,
+      relPath,
       localText,
       state?.eTag
     );
@@ -542,20 +672,20 @@ export class CollaborativeSyncEngine {
         remote.text
       );
 
-      await this.writeLocalSuppressed(file, mergedText);
+      await this.writeTextByPathSuppressed(relPath, mergedText);
       const retry = await this.graph.uploadFileText(
         this.target,
-        file.path,
+        relPath,
         mergedText,
         remote.eTag
       );
 
       if (retry.item) {
-        this.store.files[file.path] = {
+        this.store.files[relPath] = {
           itemId: retry.item.id,
           eTag: retry.item.eTag ?? "",
           baseText: mergedText,
-          lastSyncedMtime: file.stat.mtime,
+          lastSyncedMtime: Date.now(),
           lastModifiedBy: remote.lastModifiedBy,
         };
         await this.saveStore();
@@ -564,11 +694,11 @@ export class CollaborativeSyncEngine {
     }
 
     if (res.item) {
-      this.store.files[file.path] = {
+      this.store.files[relPath] = {
         itemId: res.item.id,
         eTag: res.item.eTag ?? "",
         baseText: localText,
-        lastSyncedMtime: file.stat.mtime,
+        lastSyncedMtime: Date.now(),
       };
       await this.saveStore();
       return { pushed: 1, merged: 0, conflicts: 0 };
@@ -586,12 +716,12 @@ export class CollaborativeSyncEngine {
     return this.pushFile(file);
   }
 
-  private async pushBinaryFile(
-    file: TFile
+  private async pushBinaryPath(
+    relPath: string
   ): Promise<{ pushed: number; merged: number; conflicts: number }> {
-    const localBuf = await this.readBinaryCompat(file);
+    const localBuf = await this.readBinaryByPath(relPath);
     const localHash = hashBinaryBuffer(localBuf);
-    const state = this.store.files[file.path];
+    const state = this.store.files[relPath];
 
     if (state?.isBinary && state.binaryHash === localHash) {
       return { pushed: 0, merged: 0, conflicts: 0 };
@@ -599,7 +729,7 @@ export class CollaborativeSyncEngine {
 
     const res = await this.graph.uploadFileBinary(
       this.target,
-      file.path,
+      relPath,
       localBuf,
       state?.eTag
     );
@@ -610,32 +740,32 @@ export class CollaborativeSyncEngine {
         this.target.driveId,
         state.itemId
       );
-      const conflictPath = this.buildBinaryConflictPath(file.path);
-      const conflictFile = await this.createBinarySuppressed(conflictPath, localBuf);
-      await this.writeBinarySuppressed(file, remoteBin.data);
+      const conflictPath = this.buildBinaryConflictPath(relPath);
+      await this.writeBinaryByPathSuppressed(conflictPath, localBuf);
+      await this.writeBinaryByPathSuppressed(relPath, remoteBin.data);
       const remoteHash = hashBinaryBuffer(remoteBin.data);
-      this.store.files[file.path] = {
+      this.store.files[relPath] = {
         itemId: state.itemId,
         eTag: remoteBin.eTag,
         baseText: "",
         isBinary: true,
         binaryHash: remoteHash,
-        lastSyncedMtime: file.stat.mtime,
+        lastSyncedMtime: Date.now(),
         lastModifiedBy: remoteBin.lastModifiedBy,
       };
-      await this.pushBinaryFile(conflictFile);
+      await this.pushBinaryPath(conflictPath);
       await this.saveStore();
       return { pushed: 1, merged: 0, conflicts: 1 };
     }
 
     if (res.item) {
-      this.store.files[file.path] = {
+      this.store.files[relPath] = {
         itemId: res.item.id,
         eTag: res.item.eTag ?? "",
         baseText: "",
         isBinary: true,
         binaryHash: localHash,
-        lastSyncedMtime: file.stat.mtime,
+        lastSyncedMtime: Date.now(),
       };
       await this.saveStore();
       return { pushed: 1, merged: 0, conflicts: 0 };
@@ -653,80 +783,171 @@ export class CollaborativeSyncEngine {
     return `${relPath.slice(0, dotIdx)} (Conflict ${stamp})${relPath.slice(dotIdx)}`;
   }
 
-  private async readBinaryCompat(file: TFile): Promise<ArrayBuffer> {
-    const v = this.vault as unknown as {
-      readBinary?: (f: TFile) => Promise<ArrayBuffer>;
-    };
-    if (typeof v.readBinary === "function") {
-      return v.readBinary(file);
-    }
-    const text = await this.vault.read(file);
-    return new TextEncoder().encode(text).buffer;
+  private getAdapter(): {
+    exists?: (p: string) => Promise<boolean>;
+    read?: (p: string) => Promise<string>;
+    readBinary?: (p: string) => Promise<ArrayBuffer>;
+    write?: (p: string, d: string) => Promise<void>;
+    writeBinary?: (p: string, d: ArrayBuffer) => Promise<void>;
+    mkdir?: (p: string) => Promise<void>;
+    remove?: (p: string) => Promise<void>;
+    rmdir?: (p: string, recursive: boolean) => Promise<void>;
+  } | undefined {
+    return (this.vault as unknown as { adapter?: Record<string, unknown> }).adapter as
+      | {
+          exists?: (p: string) => Promise<boolean>;
+          read?: (p: string) => Promise<string>;
+          readBinary?: (p: string) => Promise<ArrayBuffer>;
+          write?: (p: string, d: string) => Promise<void>;
+          writeBinary?: (p: string, d: ArrayBuffer) => Promise<void>;
+          mkdir?: (p: string) => Promise<void>;
+          remove?: (p: string) => Promise<void>;
+          rmdir?: (p: string, recursive: boolean) => Promise<void>;
+        }
+      | undefined;
   }
 
-  private async writeBinarySuppressed(
-    file: TFile,
-    data: ArrayBuffer
-  ): Promise<void> {
-    this.suppressModifyForPaths.add(file.path);
-    try {
+  private async readTextByPath(relPath: string): Promise<string> {
+    const abstract = this.vault.getAbstractFileByPath(relPath);
+    if (abstract instanceof TFile) {
+      return await this.vault.read(abstract);
+    }
+    const adapter = this.getAdapter();
+    if (adapter && typeof adapter.read === "function") {
+      return await adapter.read(relPath);
+    }
+    return "";
+  }
+
+  private async readBinaryByPath(relPath: string): Promise<ArrayBuffer> {
+    const abstract = this.vault.getAbstractFileByPath(relPath);
+    if (abstract instanceof TFile) {
       const v = this.vault as unknown as {
-        modifyBinary?: (f: TFile, d: ArrayBuffer) => Promise<void>;
+        readBinary?: (f: TFile) => Promise<ArrayBuffer>;
       };
-      if (typeof v.modifyBinary === "function") {
-        await v.modifyBinary(file, data);
-      } else {
-        await this.vault.modify(file, new TextDecoder().decode(data));
+      if (typeof v.readBinary === "function") {
+        return await v.readBinary(abstract);
       }
-    } finally {
-      this.suppressModifyForPaths.delete(file.path);
+      const text = await this.vault.read(abstract);
+      return new TextEncoder().encode(text).buffer;
     }
+    const adapter = this.getAdapter();
+    if (adapter && typeof adapter.readBinary === "function") {
+      return await adapter.readBinary(relPath);
+    }
+    if (adapter && typeof adapter.read === "function") {
+      const text = await adapter.read(relPath);
+      return new TextEncoder().encode(text).buffer;
+    }
+    return new ArrayBuffer(0);
   }
 
-  private async createBinarySuppressed(
+  private async writeTextByPathSuppressed(
     relPath: string,
-    data: ArrayBuffer
-  ): Promise<TFile> {
+    content: string
+  ): Promise<void> {
     this.suppressModifyForPaths.add(relPath);
     try {
-      const v = this.vault as unknown as {
-        createBinary?: (p: string, d: ArrayBuffer) => Promise<TFile>;
-      };
-      if (typeof v.createBinary === "function") {
-        return await v.createBinary(relPath, data);
+      const abstract = this.vault.getAbstractFileByPath(relPath);
+      if (abstract instanceof TFile) {
+        await this.vault.modify(abstract, content);
+        return;
       }
-      return await this.vault.create(relPath, new TextDecoder().decode(data));
+      const adapter = this.getAdapter();
+      if (this.isConfigDirPath(relPath) && adapter && typeof adapter.write === "function") {
+        await adapter.write(relPath, content);
+        return;
+      }
+      await this.vault.create(relPath, content);
     } finally {
       this.suppressModifyForPaths.delete(relPath);
     }
   }
 
-  private async deleteLocalSuppressed(abstractFile: TFile | TFolder | { path: string }): Promise<void> {
-    this.suppressDeleteForPaths.add(abstractFile.path);
+  private async writeBinaryByPathSuppressed(
+    relPath: string,
+    data: ArrayBuffer
+  ): Promise<void> {
+    this.suppressModifyForPaths.add(relPath);
     try {
-      await (this.vault as unknown as { delete: (f: unknown, force?: boolean) => Promise<void> }).delete(
-        abstractFile,
-        true
-      );
+      const abstract = this.vault.getAbstractFileByPath(relPath);
+      const v = this.vault as unknown as {
+        modifyBinary?: (f: TFile, d: ArrayBuffer) => Promise<void>;
+        createBinary?: (p: string, d: ArrayBuffer) => Promise<TFile>;
+      };
+      if (abstract instanceof TFile) {
+        if (typeof v.modifyBinary === "function") {
+          await v.modifyBinary(abstract, data);
+        } else {
+          await this.vault.modify(abstract, new TextDecoder().decode(data));
+        }
+        return;
+      }
+      const adapter = this.getAdapter();
+      if (
+        this.isConfigDirPath(relPath) &&
+        adapter &&
+        typeof adapter.writeBinary === "function"
+      ) {
+        await adapter.writeBinary(relPath, data);
+        return;
+      }
+      if (typeof v.createBinary === "function") {
+        await v.createBinary(relPath, data);
+      } else {
+        await this.vault.create(relPath, new TextDecoder().decode(data));
+      }
     } finally {
-      this.suppressDeleteForPaths.delete(abstractFile.path);
+      this.suppressModifyForPaths.delete(relPath);
     }
   }
 
-  private async writeLocalSuppressed(file: TFile, content: string): Promise<void> {
-    this.suppressModifyForPaths.add(file.path);
+  private async removePathSuppressed(
+    relPath: string,
+    isFolder: boolean
+  ): Promise<void> {
+    this.suppressDeleteForPaths.add(relPath);
     try {
-      await this.vault.modify(file, content);
+      const abstract = this.vault.getAbstractFileByPath(relPath);
+      if (abstract) {
+        await (
+          this.vault as unknown as {
+            delete: (f: unknown, force?: boolean) => Promise<void>;
+          }
+        ).delete(abstract, true);
+        return;
+      }
+      const adapter = this.getAdapter();
+      if (!adapter) return;
+      if (typeof adapter.exists === "function" && !(await adapter.exists(relPath))) {
+        return;
+      }
+      if (isFolder && typeof adapter.rmdir === "function") {
+        await adapter.rmdir(relPath, true);
+      } else if (typeof adapter.remove === "function") {
+        await adapter.remove(relPath);
+      }
     } finally {
-      this.suppressModifyForPaths.delete(file.path);
+      this.suppressDeleteForPaths.delete(relPath);
     }
   }
 
   private async ensureFolderExists(folderPath: string): Promise<void> {
     const parts = folderPath.split("/").filter(Boolean);
     let current = "";
+    const adapter = this.getAdapter();
     for (const part of parts) {
       current = current ? `${current}/${part}` : part;
+      if (this.isConfigDirPath(current) && adapter) {
+        const exists =
+          typeof adapter.exists === "function"
+            ? await adapter.exists(current)
+            : false;
+        if (!exists && typeof adapter.mkdir === "function") {
+          await adapter.mkdir(current);
+        }
+        continue;
+      }
       const existing = this.vault.getAbstractFileByPath(current);
       if (!existing) {
         await this.vault.createFolder(current);

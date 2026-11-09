@@ -12,6 +12,7 @@ export interface EntraSyncSettings {
   graphBaseUrl: string;
   oneDriveVaultsFolder: string;
   includeSitesScope: boolean;
+  syncObsidianConfig: boolean;
   autoSyncIntervalSec: number;
   tokens?: AuthTokens;
   activeVault?: RemoteVaultTarget;
@@ -24,6 +25,7 @@ const DEFAULT_SETTINGS: EntraSyncSettings = {
   graphBaseUrl: "https://graph.microsoft.com/v1.0",
   oneDriveVaultsFolder: "ObsidianVaults",
   includeSitesScope: false,
+  syncObsidianConfig: true,
   autoSyncIntervalSec: 15,
   syncStore: { files: {} },
 };
@@ -321,7 +323,8 @@ export default class EntraSharePointSyncPlugin extends Plugin {
         this.settings.syncStore,
         () => this.saveSettings(),
         (status) => this.updateStatusBar(status),
-        this.logger
+        this.logger,
+        () => this.settings.syncObsidianConfig
       );
     } else {
       this.syncEngine = undefined;
@@ -650,6 +653,23 @@ class EntraSyncSettingTab extends PluginSettingTab {
         );
 
       if (this.plugin.settings.activeVault) {
+        new Setting(containerEl)
+          .setName("Sync Vault Settings (.obsidian)")
+          .setDesc(
+            "Sync shared vault settings, themes, CSS snippets, hotkeys, and plugins inside .obsidian/ (automatically excludes your personal Entra ID tokens in data.json and personal workspace.json tab layout)."
+          )
+          .addToggle((toggle) =>
+            toggle
+              .setValue(this.plugin.settings.syncObsidianConfig)
+              .onChange(async (val) => {
+                this.plugin.settings.syncObsidianConfig = val;
+                await this.plugin.saveSettings();
+                if (val) {
+                  await this.plugin.triggerManualSync();
+                }
+              })
+          );
+
         new Setting(containerEl)
           .setName("Per-Vault Sharing (OneNote / SharePoint style)")
           .setDesc("Invite colleagues by email and manage access permissions")
