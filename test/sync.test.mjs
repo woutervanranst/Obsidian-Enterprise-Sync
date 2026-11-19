@@ -81,6 +81,9 @@ class MockVault {
       },
     };
   }
+  on() {
+    return {};
+  }
   getFiles() {
     // Just like real Obsidian, vault.getFiles() does NOT return .obsidian/ config files
     return Array.from(this.files.values())
@@ -164,10 +167,143 @@ const obsidianMock = {
   TFile: MockTFile,
   TFolder: MockTFolder,
   Vault: MockVault,
-  Plugin: class {},
-  PluginSettingTab: class {},
+  Plugin: class {
+    constructor(app, manifest) {
+      this.app = app;
+      this.manifest = manifest;
+    }
+    addSettingTab(tab) {
+      this._settingTab = tab;
+    }
+  },
+  PluginSettingTab: class {
+    constructor(app, plugin) {
+      this.app = app;
+      this.plugin = plugin;
+      const makeEl = () => ({
+        children: [],
+        empty() {
+          this.children = [];
+        },
+        createDiv(opts = {}) {
+          const el = makeEl();
+          Object.assign(el, opts);
+          this.children.push(el);
+          return el;
+        },
+        createEl(tag, opts = {}) {
+          const el = makeEl();
+          el.tag = tag;
+          Object.assign(el, opts);
+          this.children.push(el);
+          return el;
+        },
+        setText(t) {
+          this.text = t;
+        },
+      });
+      this.containerEl = makeEl();
+    }
+  },
   Modal: class {},
-  Setting: class {},
+  Setting: class {
+    constructor(containerEl) {
+      this.containerEl = containerEl;
+      this.buttons = [];
+      this.texts = [];
+      this.toggles = [];
+      this.dropdowns = [];
+      if (containerEl && Array.isArray(containerEl.children)) {
+        containerEl.children.push(this);
+      }
+    }
+    setName(name) {
+      this.name = name;
+      return this;
+    }
+    setDesc(desc) {
+      this.desc = desc;
+      return this;
+    }
+    setHeading() {
+      this.isHeading = true;
+      return this;
+    }
+    addText(cb) {
+      const textComp = {
+        inputEl: { type: "text" },
+        setValue(v) {
+          this.value = v;
+          return this;
+        },
+        setPlaceholder(p) {
+          this.placeholder = p;
+          return this;
+        },
+        onChange(fn) {
+          this.onChangeFn = fn;
+          return this;
+        },
+      };
+      cb(textComp);
+      this.texts.push(textComp);
+      return this;
+    }
+    addButton(cb) {
+      const btnComp = {
+        setButtonText(t) {
+          this.buttonText = t;
+          return this;
+        },
+        setCta() {
+          this.cta = true;
+          return this;
+        },
+        onClick(fn) {
+          this.onClickFn = fn;
+          return this;
+        },
+      };
+      cb(btnComp);
+      this.buttons.push(btnComp);
+      return this;
+    }
+    addToggle(cb) {
+      const toggleComp = {
+        setValue(v) {
+          this.value = v;
+          return this;
+        },
+        onChange(fn) {
+          this.onChangeFn = fn;
+          return this;
+        },
+      };
+      cb(toggleComp);
+      this.toggles.push(toggleComp);
+      return this;
+    }
+    addDropdown(cb) {
+      const dropComp = {
+        options: {},
+        addOption(k, v) {
+          this.options[k] = v;
+          return this;
+        },
+        setValue(v) {
+          this.value = v;
+          return this;
+        },
+        onChange(fn) {
+          this.onChangeFn = fn;
+          return this;
+        },
+      };
+      cb(dropComp);
+      this.dropdowns.push(dropComp);
+      return this;
+    }
+  },
   Notice: class {},
   requestUrl: async ({ url, method = "GET", headers = {}, body, throw: shouldThrow = true }) => {
     const res = await fetch(url, {
@@ -212,7 +348,7 @@ test("End-to-end Microsoft Entra ID Auth + SharePoint/OneDrive Graph Vault Shari
     // Load the esbuild-compiled plugin bundle or source modules via esbuild register
     const esbuild = await import("esbuild");
     const authBuild = await esbuild.build({
-      entryPoints: ["src/auth.ts", "src/graph.ts", "src/sync.ts", "src/logger.ts"],
+      entryPoints: ["src/main.ts", "src/auth.ts", "src/graph.ts", "src/sync.ts", "src/logger.ts"],
       bundle: true,
       format: "cjs",
       platform: "node",
@@ -229,10 +365,60 @@ test("End-to-end Microsoft Entra ID Auth + SharePoint/OneDrive Graph Vault Shari
       return m.exports;
     };
 
+    const { default: EntraSharePointSyncPlugin } = loadBundled("main.js");
     const { EntraPkceAuth } = loadBundled("auth.js");
     const { GraphVaultClient } = loadBundled("graph.js");
     const { CollaborativeSyncEngine } = loadBundled("sync.js");
     const { SyncLogger } = loadBundled("logger.js");
+
+    // 0. Verify EntraSyncSettingTab does NOT define getSettingDefinitions() (which breaks display() in Obsidian 1.13+)
+    // and that display() renders text inputs, sign-in buttons, and the diagnostic log viewer.
+    const dummyApp = { vault: new MockVault(), workspace: {} };
+    const pluginInstance = new EntraSharePointSyncPlugin(dummyApp, {
+      id: "entra-sharepoint-sync",
+      name: "OneDrive + Enterprise SharePoint + Teams Sync",
+      version: "1.0.7",
+    });
+    pluginInstance.loadData = async () => ({});
+    pluginInstance.saveData = async () => {};
+    pluginInstance.addStatusBarItem = () => ({
+      addClass() {},
+      addEventListener() {},
+      setText() {},
+    });
+    pluginInstance.registerObsidianProtocolHandler = () => {};
+    pluginInstance.addRibbonIcon = () => {};
+    pluginInstance.registerEvent = () => {};
+    pluginInstance.addCommand = () => {};
+    pluginInstance.registerInterval = (id) => id;
+    await pluginInstance.onload();
+    const settingTab = pluginInstance._settingTab;
+    assert.ok(settingTab, "Plugin should register EntraSyncSettingTab");
+    assert.equal(
+      settingTab.getSettingDefinitions,
+      undefined,
+      "EntraSyncSettingTab.prototype.getSettingDefinitions must be undefined so Obsidian 1.13+ calls display()"
+    );
+    settingTab.display();
+    const renderedSettings = settingTab.containerEl.children.filter(
+      (c) => c instanceof obsidianMock.Setting
+    );
+    const textInputSettings = renderedSettings.filter((s) => s.texts.length > 0);
+    assert.ok(
+      textInputSettings.length >= 4,
+      "display() must render text inputs for Tenant ID, Client ID, OneDrive folder, and Graph URL"
+    );
+    const buttonTexts = renderedSettings.flatMap((s) =>
+      s.buttons.map((b) => b.buttonText)
+    );
+    assert.ok(
+      buttonTexts.includes("Sign in (browser PKCE)"),
+      "display() must render 'Sign in (browser PKCE)' button"
+    );
+    assert.ok(
+      buttonTexts.includes("Refresh logs"),
+      "display() must render troubleshooting log viewer action buttons"
+    );
 
     const clientId = process.env.ENTRA_CLIENT_ID || "ada87c12-a404-484b-a7dc-10c54beb2d7d";
     const pass = process.env.ENTRA_TEST_PASSWORD;

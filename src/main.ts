@@ -448,16 +448,6 @@ class EntraSyncSettingTab extends PluginSettingTab {
     super(app, plugin);
   }
 
-  getSettingDefinitions() {
-    return [
-      { id: "tenantId", name: "Tenant ID" },
-      { id: "clientId", name: "Entra app client ID" },
-      { id: "oneDriveVaultsFolder", name: "OneDrive vaults folder path" },
-      { id: "graphBaseUrl", name: "Microsoft Graph base URL" },
-      { id: "syncObsidianConfig", name: "Sync vault configuration" },
-    ];
-  }
-
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
