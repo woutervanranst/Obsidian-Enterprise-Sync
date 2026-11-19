@@ -66,11 +66,34 @@ interface GraphListResponse<T> {
 interface GraphSiteNode {
   id: string;
   displayName: string;
+  webUrl?: string;
 }
 
 interface GraphDriveNode {
   id: string;
+  name?: string;
   webUrl?: string;
+}
+
+export function encodeGraphShareToken(targetUrl: string): string {
+  const bytes = new TextEncoder().encode(targetUrl);
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  const base64Url = btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+  return `u!${base64Url}`;
+}
+
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 interface GraphRequestOptions {
@@ -178,9 +201,14 @@ export class GraphVaultClient {
       throw: false,
     });
 
-    if (res.status === 401 && !opts.omitAuth) {
+    const isSharePointScopeRetryable =
+      res.status === 403 &&
+      (opts.url.includes("/sites/") || opts.url.includes("/shares/"));
+
+    if ((res.status === 401 || isSharePointScopeRetryable) && !opts.omitAuth) {
+      const statusText = res.status === 401 ? "401 Unauthorized" : "403 Forbidden";
       this.logger.warn(
-        `${method} ${safeUrl} returned 401 Unauthorized — forcing OAuth2 token refresh and retrying once`,
+        `${method} ${safeUrl} returned ${statusText} — forcing OAuth2 token refresh and retrying once`,
         this.extractErrorDetails(res)
       );
       try {
@@ -327,12 +355,28 @@ export class GraphVaultClient {
 
   /**
    * Create or resolve a vault folder in the user's OneDrive/SharePoint drive by path
-   * (e.g., "ObsidianVaults/EngineeringWiki" or "Documents/Documents/EngineeringWiki").
+   * (e.g., "ObsidianVaults/EngineeringWiki" or "Documents/Documents/EngineeringWiki"),
+   * or resolve a full SharePoint / Teams / OneDrive URL if an http(s) URL is passed.
    */
   async createOrGetVaultFolder(
     vaultName: string,
     parentFolder = "ObsidianVaults"
   ): Promise<RemoteVaultTarget> {
+    if (/^https?:\/\//i.test(vaultName.trim())) {
+      return this.resolveVaultFromUrl(vaultName.trim());
+    }
+    if (/^https?:\/\//i.test(parentFolder.trim())) {
+      const baseTarget = await this.resolveVaultFromUrl(parentFolder.trim());
+      const cleanSub = vaultName.replace(/^\/+|\/+$/g, "");
+      if (!cleanSub) return baseTarget;
+      return this.ensureFolderInDrive(
+        baseTarget.driveId,
+        cleanSub.split("/").filter(Boolean),
+        baseTarget.rootItemId,
+        "SharePoint"
+      );
+    }
+
     const base = this.baseUrl();
     const cleanParent = parentFolder.replace(/^\/+|\/+$/g, "");
     const cleanName = vaultName.replace(/^\/+|\/+$/g, "");
@@ -387,6 +431,270 @@ export class GraphVaultClient {
 
     return {
       name: `${cleanName} (My OneDrive)`,
+      driveId,
+      rootItemId: currentParentId,
+      webUrl: lastItem?.webUrl ?? "",
+    };
+  }
+
+  /**
+   * Resolve a SharePoint, Microsoft Teams, or OneDrive folder URL into a RemoteVaultTarget.
+   * Supports:
+   *  - SharePoint/Teams Forms/AllItems.aspx?id=/sites/{site}/{library}/{folder}&viewid=...
+   *  - Direct SharePoint/Teams folder or library URLs (https://{tenant}.sharepoint.com/sites/{site}/{library}/{folder})
+   *  - SharePoint/OneDrive sharing links (/:f:/r/..., /:f:/s/..., 1drv.ms)
+   *  - Consumer OneDrive web URLs (https://onedrive.live.com/my?id=/personal/{cid}/Documents/{folder})
+   */
+  async resolveVaultFromUrl(rawUrl: string): Promise<RemoteVaultTarget> {
+    const trimmed = rawUrl.trim();
+    const parsed = new URL(trimmed);
+    const base = this.baseUrl();
+
+    const idParam =
+      parsed.searchParams.get("id") || parsed.searchParams.get("RootFolder");
+
+    const shareCandidates: string[] = [];
+    if (idParam && idParam.startsWith("/")) {
+      const encodedIdPath = idParam
+        .split("/")
+        .map((seg) => (seg ? encodeURIComponent(safeDecodeURIComponent(seg)) : ""))
+        .join("/");
+      shareCandidates.push(`${parsed.origin}${encodedIdPath}`);
+    }
+
+    if (/\/Forms\/[^/]+\.aspx$/i.test(parsed.pathname)) {
+      const libraryRootPath = parsed.pathname.replace(/\/Forms\/[^/]+\.aspx$/i, "");
+      if (libraryRootPath) {
+        shareCandidates.push(`${parsed.origin}${libraryRootPath}`);
+      }
+    } else {
+      shareCandidates.push(trimmed);
+      const cleanOriginPath = `${parsed.origin}${parsed.pathname.replace(/\/+$/, "")}`;
+      if (!shareCandidates.includes(cleanOriginPath)) {
+        shareCandidates.push(cleanOriginPath);
+      }
+    }
+
+    // 1. Try resolving directly via Microsoft Graph /shares/{u!base64url}/driveItem
+    for (const candidate of shareCandidates) {
+      const shareToken = encodeGraphShareToken(candidate);
+      const shareRes = await this.graphRequest({
+        url: `${base}/shares/${shareToken}/driveItem`,
+        throwOnError: false,
+      });
+      if (shareRes.status === 200 && shareRes.json) {
+        const rawItem = shareRes.json as GraphDriveItemNode;
+        const item = rawItem.remoteItem ?? rawItem;
+        const driveId = item.parentReference?.driveId;
+        if (driveId && item.id) {
+          const siteMatch = (idParam || parsed.pathname).match(
+            /\/(?:sites|teams)\/([^/]+)/i
+          );
+          const siteLabel = siteMatch
+            ? `SharePoint: ${safeDecodeURIComponent(siteMatch[1])}`
+            : parsed.hostname.includes("sharepoint.com")
+              ? "SharePoint"
+              : "OneDrive";
+          const isDriveRoot = item.name === "root";
+          const displayName =
+            isDriveRoot && siteMatch
+              ? safeDecodeURIComponent(siteMatch[1])
+              : item.name;
+          return {
+            name: `${displayName} (${siteLabel})`,
+            driveId,
+            rootItemId: isDriveRoot ? "root" : item.id,
+            webUrl: item.webUrl ?? candidate,
+          };
+        }
+      }
+    }
+
+    // 2. SharePoint / Teams site + Document Library + subfolder resolution
+    const rawServerPath =
+      idParam || parsed.pathname.replace(/\/Forms\/[^/]+\.aspx$/i, "");
+    let decodedSegments = rawServerPath
+      .split("/")
+      .filter(Boolean)
+      .map(safeDecodeURIComponent);
+
+    // Strip SharePoint sharing link prefixes such as /:f:/r/sites/... or /:f:/s/...
+    if (decodedSegments[0]?.startsWith(":") && decodedSegments[0]?.endsWith(":")) {
+      decodedSegments = decodedSegments.slice(1);
+      if (decodedSegments[0] === "r" || decodedSegments[0] === "s") {
+        decodedSegments = decodedSegments.slice(1);
+      }
+    }
+
+    if (
+      (decodedSegments[0] === "sites" || decodedSegments[0] === "teams") &&
+      decodedSegments.length >= 2
+    ) {
+      const siteCollection = decodedSegments[0];
+      const siteName = decodedSegments[1];
+      const librarySegment = decodedSegments[2];
+      let folderSegments = decodedSegments.slice(3);
+
+      const siteRes = await this.graphRequest({
+        url: `${base}/sites/${parsed.hostname}:/${siteCollection}/${encodeURIComponent(siteName)}`,
+        throwOnError: true,
+      });
+      const site = siteRes.json as GraphSiteNode;
+
+      const drivesRes = await this.graphRequest({
+        url: `${base}/sites/${site.id}/drives`,
+        throwOnError: false,
+      });
+      const drivesList =
+        (drivesRes.json as GraphListResponse<GraphDriveNode> | undefined)?.value ?? [];
+
+      let matchedDrive: GraphDriveNode | undefined;
+      if (librarySegment && drivesList.length > 0) {
+        const expectedSuffix = `/${siteCollection}/${siteName}/${librarySegment}`.toLowerCase();
+        matchedDrive = drivesList.find((d) => {
+          if (d.name && d.name.toLowerCase() === librarySegment.toLowerCase()) {
+            return true;
+          }
+          if (d.webUrl) {
+            try {
+              const dPath = safeDecodeURIComponent(new URL(d.webUrl).pathname)
+                .replace(/\/+$/, "")
+                .toLowerCase();
+              return dPath.endsWith(expectedSuffix);
+            } catch {
+              return false;
+            }
+          }
+          return false;
+        });
+      }
+
+      if (!matchedDrive) {
+        const defaultDriveRes = await this.graphRequest({
+          url: `${base}/sites/${site.id}/drive`,
+          throwOnError: true,
+        });
+        matchedDrive = defaultDriveRes.json as GraphDriveNode;
+        if (librarySegment) {
+          const defaultWebPath = matchedDrive.webUrl
+            ? safeDecodeURIComponent(new URL(matchedDrive.webUrl).pathname)
+                .replace(/\/+$/, "")
+                .toLowerCase()
+            : "";
+          const expectedSuffix = `/${siteCollection}/${siteName}/${librarySegment}`.toLowerCase();
+          if (
+            !defaultWebPath.endsWith(expectedSuffix) &&
+            matchedDrive.name?.toLowerCase() !== librarySegment.toLowerCase()
+          ) {
+            folderSegments = [librarySegment, ...folderSegments];
+          }
+        }
+      }
+
+      const siteLabel = `SharePoint: ${site.displayName || siteName}`;
+      if (folderSegments.length === 0) {
+        return {
+          name: `${site.displayName || siteName} (SharePoint)`,
+          driveId: matchedDrive.id,
+          rootItemId: "root",
+          webUrl: matchedDrive.webUrl ?? trimmed,
+        };
+      }
+
+      return this.ensureFolderInDrive(
+        matchedDrive.id,
+        folderSegments,
+        "root",
+        siteLabel
+      );
+    }
+
+    // 3. Consumer OneDrive or OneDrive for Business /personal/{id}/Documents/{path}
+    if (
+      decodedSegments[0] === "personal" &&
+      decodedSegments.length >= 4 &&
+      decodedSegments[2].toLowerCase() === "documents"
+    ) {
+      const relSegments = decodedSegments.slice(3);
+      const vaultFolder = relSegments[relSegments.length - 1];
+      const parentPath = relSegments.slice(0, -1).join("/");
+      return this.createOrGetVaultFolder(vaultFolder, parentPath);
+    }
+
+    throw new Error(
+      `Could not resolve SharePoint, Teams, or OneDrive folder from URL: ${trimmed}`
+    );
+  }
+
+  private async ensureFolderInDrive(
+    driveId: string,
+    folderSegments: string[],
+    startParentId = "root",
+    labelSuffix = "SharePoint"
+  ): Promise<RemoteVaultTarget> {
+    const base = this.baseUrl();
+    const encodedRel = folderSegments.map((s) => encodeURIComponent(s)).join("/");
+
+    if (startParentId === "root") {
+      const existingRes = await this.graphRequest({
+        url: `${base}/drives/${driveId}/root:/${encodedRel}`,
+        throwOnError: false,
+      });
+      if (existingRes.status === 200 && existingRes.json) {
+        const existingItem = existingRes.json as GraphDriveItemNode;
+        return {
+          name: `${existingItem.name} (${labelSuffix})`,
+          driveId,
+          rootItemId: existingItem.id,
+          webUrl: existingItem.webUrl ?? "",
+        };
+      }
+    }
+
+    let currentParentId = startParentId;
+    let lastItem: GraphDriveItemNode | null = null;
+    for (let i = 0; i < folderSegments.length; i++) {
+      const segment = folderSegments[i];
+      const childrenUrl =
+        currentParentId === "root"
+          ? `${base}/drives/${driveId}/root/children`
+          : `${base}/drives/${driveId}/items/${currentParentId}/children`;
+
+      const createRes = await this.graphRequest({
+        url: childrenUrl,
+        method: "POST",
+        extraHeaders: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: segment,
+          folder: {},
+        }),
+        throwOnError: false,
+      });
+
+      if (createRes.status >= 200 && createRes.status < 300 && createRes.json) {
+        lastItem = createRes.json as GraphDriveItemNode;
+        currentParentId = lastItem.id;
+      } else if (startParentId === "root") {
+        const subPath = folderSegments
+          .slice(0, i + 1)
+          .map((s) => encodeURIComponent(s))
+          .join("/");
+        const getRes = await this.graphRequest({
+          url: `${base}/drives/${driveId}/root:/${subPath}`,
+          throwOnError: true,
+        });
+        lastItem = getRes.json as GraphDriveItemNode;
+        currentParentId = lastItem.id;
+      } else {
+        throw new Error(
+          `Failed to resolve or create subfolder '${segment}' in drive ${driveId} (${createRes.status})`
+        );
+      }
+    }
+
+    const finalName = lastItem?.name || folderSegments[folderSegments.length - 1];
+    return {
+      name: `${finalName} (${labelSuffix})`,
       driveId,
       rootItemId: currentParentId,
       webUrl: lastItem?.webUrl ?? "",

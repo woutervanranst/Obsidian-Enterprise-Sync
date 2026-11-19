@@ -75,24 +75,19 @@ Once you receive those two IDs from your admin, paste them into **Tenant ID** an
 
 ### SharePoint Configuration
 
-You can use a SharePoint Site Document Library (or a shared folder inside it) as a collaborative team vault:
+You can use any SharePoint Site Document Library or subfolder inside it as a collaborative team vault:
 
-1. Open the target SharePoint site in your browser and click the **Follow** star (top right) so Microsoft Graph lists it under your followed sites—or have a teammate share a specific folder with you.
-2. In Obsidian, open **Settings → OneDrive + Enterprise SharePoint + Teams Sync**.
-3. Sign in with your corporate Entra ID account.
-4. Click **Discover vaults** and select either:
-   - Your followed SharePoint site (`<Site Name> (SharePoint)`), or
-   - A specific shared folder (`<Folder Name> (Shared with me)`).
-5. Click **Sync now** (or let automatic background sync run).
+1. In your browser, open the target SharePoint folder (or Document Library) and copy its URL from the address bar (for example `https://contoso.sharepoint.com/sites/Engineering/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2FEngineering%2FShared%20Documents%2FObsidianVault...` or a direct folder link).
+2. In Obsidian, open **Settings → OneDrive + Enterprise SharePoint + Teams Sync** and sign in with your corporate Entra ID account.
+3. Paste the URL into **Connect SharePoint, Microsoft Teams, or OneDrive URL** and click **Connect URL** (or click **Discover vaults** to pick from your followed SharePoint sites and shared folders).
+4. Click **Sync now** (or let automatic background sync run).
 
 ### Microsoft Teams Configuration
 
 Every Microsoft Teams team and standard channel is backed by a SharePoint Online site and Document Library (`Files` tab in Teams):
 
 1. In Microsoft Teams, open the channel where you want to store the team's Obsidian vault, go to the **Files** tab, and click **Open in SharePoint**.
-2. Choose one of two approaches:
-   - **Share a dedicated vault folder (Recommended)**: Create a folder inside the channel's `Files` tab (e.g., `EngineeringVault`), click **Share** on that folder for your team members, and select `<Folder Name> (Shared with me)` after clicking **Discover vaults** in Obsidian.
-   - **Follow the Team's SharePoint site**: Click **Follow** (star icon) on the Team's SharePoint page in your browser, then click **Discover vaults** in Obsidian to select `<Team Name> (SharePoint)`.
+2. Open or create your vault folder in SharePoint, copy the browser URL, and paste it into **Connect SharePoint, Microsoft Teams, or OneDrive URL** in Obsidian settings (or share/follow the folder and click **Discover vaults**).
 
 ## Features
 

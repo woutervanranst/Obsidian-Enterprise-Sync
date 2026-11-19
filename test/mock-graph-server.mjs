@@ -326,6 +326,60 @@ export function createMockGraphServer({ port = 0, host = "0.0.0.0", baseUrlOverr
       return;
     }
 
+    // 5b. GET /v1.0/shares/:shareToken/driveItem (SharePoint / Teams URL resolution)
+    const shareItemMatch = pathname.match(/^\/v1\.0\/shares\/([^/]+)\/driveItem$/);
+    if (req.method === "GET" && shareItemMatch) {
+      const shareToken = shareItemMatch[1];
+      const b64 = shareToken.replace(/^u!/, "");
+      let decodedUrl = "";
+      try {
+        decodedUrl = Buffer.from(b64, "base64url").toString("utf8");
+      } catch {
+        sendJson(res, 400, { error: { code: "invalidRequest", message: "Bad share token" } });
+        return;
+      }
+      const spMatch = decodedUrl.match(
+        /^https?:\/\/([^/]+)\/(sites|teams)\/([^/]+)\/([^/]+)(?:\/(.+))?$/i
+      );
+      if (spMatch) {
+        const siteSlug = decodeURIComponent(spMatch[3]);
+        const folderPath = spMatch[5] ? decodeURIComponent(spMatch[5]) : "";
+        const spDriveId = `sp-drive-${siteSlug.toLowerCase()}`;
+        if (!drives.has(spDriveId)) {
+          const items = new Map();
+          items.set("root", {
+            id: "root",
+            name: "root",
+            folder: { childCount: 0 },
+            parentReference: { driveId: spDriveId, id: "", path: "" },
+            webUrl: `https://${spMatch[1]}/${spMatch[2]}/${spMatch[3]}/${spMatch[4]}`,
+          });
+          drives.set(spDriveId, {
+            id: spDriveId,
+            ownerEmail: user.email,
+            ownerName: user.displayName,
+            items,
+            deltaSeq: new Map(),
+          });
+        }
+        const spDrive = drives.get(spDriveId);
+        const targetFolder = folderPath
+          ? ensureFolderHierarchy(
+              spDrive,
+              "root",
+              folderPath.split("/").filter(Boolean)
+            )
+          : spDrive.items.get("root");
+        sendJson(res, 200, {
+          ...targetFolder,
+          webUrl: decodedUrl,
+        });
+        return;
+      }
+      sendJson(res, 404, { error: { code: "itemNotFound", message: "Share item not found" } });
+      return;
+    }
+
     // 6. POST /v1.0/drives/:driveId/items/:itemId/invite
     const inviteMatch = pathname.match(/^\/v1\.0\/drives\/([^/]+)\/items\/([^/]+)\/invite$/);
     if (req.method === "POST" && inviteMatch) {

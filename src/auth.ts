@@ -70,9 +70,17 @@ export class EntraPkceAuth {
     private logger: SyncLogger = defaultLogger
   ) {}
 
+  isSharePointEnabled(): boolean {
+    const tenant = (this.config.tenantId || "common").trim().toLowerCase();
+    return Boolean(
+      this.config.includeSitesScope ||
+        (tenant && tenant !== "common" && tenant !== "consumers")
+    );
+  }
+
   getScopes(): string {
     const scopes = ["openid", "profile", "offline_access", "User.Read", "Files.ReadWrite.All"];
-    if (this.config.includeSitesScope) {
+    if (this.isSharePointEnabled()) {
       scopes.push("Sites.ReadWrite.All");
     }
     return scopes.join(" ");

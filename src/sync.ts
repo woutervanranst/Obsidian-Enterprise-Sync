@@ -960,6 +960,9 @@ export class CollaborativeSyncEngine {
   }
 
   private resolveRelativePath(item: DeltaDriveItem): string {
+    if (item.parentReference?.id && item.parentReference.id === this.target.rootItemId) {
+      return item.name;
+    }
     const parentPath = item.parentReference?.path;
     if (!parentPath) {
       return item.name;
@@ -970,13 +973,21 @@ export class CollaborativeSyncEngine {
     if (colonIdx === -1) {
       return item.name;
     }
-    const afterColon = parentPath.slice(colonIdx + 1).replace(/^\/+/, "");
+    let afterColon = parentPath.slice(colonIdx + 1).replace(/^\/+/, "");
+    try {
+      afterColon = decodeURIComponent(afterColon);
+    } catch {
+      // Keep raw if not URI-encoded
+    }
     if (!afterColon) {
       return item.name;
     }
+    const segments = afterColon.split("/").filter(Boolean);
+    if (this.target.rootItemId === "root") {
+      return segments.length > 0 ? `${segments.join("/")}/${item.name}` : item.name;
+    }
     // Strip the vault folder prefix if present
     const vaultFolderName = this.target.name.replace(/\s*\(.*?\)\s*$/, "").trim();
-    const segments = afterColon.split("/").filter(Boolean);
     const vaultIdx = segments.lastIndexOf(vaultFolderName);
     const relSegments = vaultIdx !== -1 ? segments.slice(vaultIdx + 1) : [];
     return relSegments.length > 0 ? `${relSegments.join("/")}/${item.name}` : item.name;

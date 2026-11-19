@@ -741,6 +741,33 @@ test("End-to-end Microsoft Entra ID Auth + SharePoint/OneDrive Graph Vault Shari
       false,
       "Personal Entra ID tokens in entra-sharepoint-sync/data.json must never sync to other users"
     );
+
+    // 16. Verify Enterprise SharePoint / Microsoft Teams AllItems.aspx?id=... URL resolution
+    const sharePointAllItemsUrl =
+      "https://aenv.sharepoint.com/sites/AEBuild-Hive-ApplicationModernization/Gedeelde%20documenten/Forms/AllItems.aspx?id=%2Fsites%2FAEBuild%2DHive%2DApplicationModernization%2FGedeelde%20documenten%2FOBSIDIANTEST&viewid=b2cee6c9%2D2fc5%2D4e50%2D8312%2Db8203705c1b8&d=w4169d048482d4af9aa0140cc31a5314c&csf=1&CID=85267350%2D96be%2D4e0d%2Db493%2Dbd1ca52d71ed&FolderCTID=0x01200004CE0A41690B4C4D83750AB0672F21B9";
+
+    const resolvedSpVault = await aliceGraph.resolveVaultFromUrl(sharePointAllItemsUrl);
+    assert.equal(
+      resolvedSpVault.name,
+      "OBSIDIANTEST (SharePoint: AEBuild-Hive-ApplicationModernization)"
+    );
+    assert.equal(
+      resolvedSpVault.driveId,
+      "sp-drive-aebuild-hive-applicationmodernization"
+    );
+    assert.ok(resolvedSpVault.rootItemId.startsWith("folder-"));
+    assert.equal(
+      resolvedSpVault.webUrl,
+      "https://aenv.sharepoint.com/sites/AEBuild-Hive-ApplicationModernization/Gedeelde%20documenten/OBSIDIANTEST"
+    );
+
+    // Also verify createOrGetVaultFolder accepts a full SharePoint URL directly
+    const resolvedViaFolderInput = await aliceGraph.createOrGetVaultFolder(
+      sharePointAllItemsUrl,
+      "ObsidianVaults"
+    );
+    assert.equal(resolvedViaFolderInput.driveId, resolvedSpVault.driveId);
+    assert.equal(resolvedViaFolderInput.rootItemId, resolvedSpVault.rootItemId);
   } finally {
     await mockGraph.stop();
   }

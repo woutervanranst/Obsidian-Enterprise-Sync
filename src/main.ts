@@ -443,6 +443,7 @@ class EntraCredentialsModal extends Modal {
 class EntraSyncSettingTab extends PluginSettingTab {
   private availableVaults: RemoteVaultTarget[] = [];
   private newVaultName = "";
+  private sharePointVaultUrl = "";
 
   constructor(app: App, private plugin: EntraSharePointSyncPlugin) {
     super(app, plugin);
@@ -509,6 +510,21 @@ class EntraSyncSettingTab extends PluginSettingTab {
             this.plugin.settings.oneDriveVaultsFolder =
               val.trim() || "ObsidianVaults";
             await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Enable SharePoint and Microsoft Teams sites")
+      .setDesc(
+        "Request Sites.ReadWrite.All scope to connect SharePoint document libraries and Microsoft Teams channels (automatically enabled for enterprise tenant IDs)."
+      )
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.auth.isSharePointEnabled())
+          .onChange(async (val) => {
+            this.plugin.settings.includeSitesScope = val;
+            await this.plugin.saveSettings();
+            this.plugin.reinitClients();
           })
       );
 
@@ -583,7 +599,7 @@ class EntraSyncSettingTab extends PluginSettingTab {
             try {
               this.availableVaults =
                 await this.plugin.graph.listAvailableVaults(
-                  this.plugin.settings.includeSitesScope,
+                  this.plugin.auth.isSharePointEnabled(),
                   this.plugin.settings.oneDriveVaultsFolder
                 );
               new Notice(`Found ${this.availableVaults.length} vault(s).`);
@@ -633,9 +649,52 @@ class EntraSyncSettingTab extends PluginSettingTab {
       }
 
       new Setting(containerEl)
+        .setName("Connect SharePoint, Microsoft Teams, or OneDrive URL")
+        .setDesc(
+          "Paste a SharePoint or Microsoft Teams folder URL (including Forms/AllItems.aspx?id=...), sharing link, or OneDrive folder URL."
+        )
+        .addText((text) =>
+          text
+            .setPlaceholder(
+              "https://contoso.sharepoint.com/sites/Team/Shared%20Documents/Vault"
+            )
+            .setValue(this.sharePointVaultUrl)
+            .onChange((val) => {
+              this.sharePointVaultUrl = val;
+            })
+        )
+        .addButton((btn) =>
+          btn
+            .setButtonText("Connect URL")
+            .setCta()
+            .onClick(async () => {
+              if (!this.sharePointVaultUrl.trim()) {
+                new Notice("Paste a SharePoint, Microsoft Teams, or OneDrive URL first.");
+                return;
+              }
+              try {
+                this.plugin.settings.includeSitesScope = true;
+                this.plugin.reinitClients();
+                const resolved = await this.plugin.graph.resolveVaultFromUrl(
+                  this.sharePointVaultUrl.trim()
+                );
+                this.plugin.settings.activeVault = resolved;
+                this.plugin.settings.syncStore = { files: {} };
+                await this.plugin.saveSettings();
+                this.plugin.reinitClients();
+                await this.plugin.triggerManualSync();
+                new Notice(`Connected to vault: ${resolved.name}`);
+                this.display();
+              } catch (err) {
+                new Notice(`Failed to connect vault URL: ${String(err)}`);
+              }
+            })
+        );
+
+      new Setting(containerEl)
         .setName("Create or connect vault folder")
         .setDesc(
-          `Create or connect a vault folder inside '${this.plugin.settings.oneDriveVaultsFolder}'`
+          `Create or connect a vault folder inside '${this.plugin.settings.oneDriveVaultsFolder}' (or paste a full SharePoint/OneDrive URL)`
         )
         .addText((text) =>
           text
