@@ -10,13 +10,13 @@ export interface RemoteVaultTarget {
 
 export interface DeltaDriveItem {
   id: string;
-  name: string;
+  name?: string;
   eTag?: string;
   cTag?: string;
   deleted?: { state: string };
-  folder?: { childCount: number };
-  file?: { mimeType: string };
-  parentReference?: { id: string; driveId?: string; path?: string };
+  folder?: { childCount?: number };
+  file?: { mimeType?: string; hashes?: { quickXorHash?: string } };
+  parentReference?: { id: string; driveId?: string; path?: string; name?: string; driveType?: string; siteId?: string };
   lastModifiedDateTime?: string;
   lastModifiedBy?: {
     user?: { displayName?: string; email?: string };
@@ -36,10 +36,19 @@ export interface VaultPermission {
   id: string;
   roles: string[];
   grantedToV2?: {
-    user?: { displayName?: string; email?: string };
+    user?: { displayName?: string; email?: string; id?: string };
+    siteUser?: { displayName?: string; email?: string; id?: string; loginName?: string };
+  };
+  grantedTo?: {
+    user?: { displayName?: string; email?: string; id?: string };
   };
   invitation?: {
     email?: string;
+  };
+  link?: {
+    webUrl?: string;
+    type?: string;
+    scope?: string;
   };
 }
 
@@ -292,7 +301,7 @@ export class GraphVaultClient {
       if (ownFolderRes.status === 200) {
         const ownFolderJson = ownFolderRes.json as GraphListResponse<GraphDriveItemNode> | undefined;
         for (const item of ownFolderJson?.value ?? []) {
-          if (item.folder && item.parentReference?.driveId) {
+          if (item.folder && item.name && item.parentReference?.driveId) {
             addVault({
               name: `${item.name} (My OneDrive)`,
               driveId: item.parentReference.driveId,
@@ -313,7 +322,7 @@ export class GraphVaultClient {
       const sharedJson = sharedRes.json as GraphListResponse<GraphDriveItemNode> | undefined;
       for (const item of sharedJson?.value ?? []) {
         const remote = item.remoteItem ?? item;
-        if (remote.folder && remote.parentReference?.driveId) {
+        if (remote.folder && remote.name && remote.parentReference?.driveId) {
           addVault({
             name: `${remote.name} (Shared with me)`,
             driveId: remote.parentReference.driveId,
@@ -355,7 +364,7 @@ export class GraphVaultClient {
                 | GraphListResponse<GraphDriveItemNode>
                 | undefined;
               for (const child of childrenJson?.value ?? []) {
-                if (child.folder) {
+                if (child.folder && child.name) {
                   addVault({
                     name: `${child.name} (SharePoint: ${site.displayName})`,
                     driveId: driveJson.id,
@@ -424,7 +433,7 @@ export class GraphVaultClient {
         body: JSON.stringify({
           name: segment,
           folder: {},
-          "@microsoft.graph.conflictBehavior": "replace",
+          "@microsoft.graph.conflictBehavior": "fail",
         }),
         throwOnError: false,
       });
@@ -519,9 +528,9 @@ export class GraphVaultClient {
               : "OneDrive";
           const isDriveRoot = item.name === "root";
           const displayName =
-            isDriveRoot && siteMatch
+            (isDriveRoot && siteMatch
               ? safeDecodeURIComponent(siteMatch[1])
-              : item.name;
+              : item.name) || "Vault";
           return {
             name: `${displayName} (${siteLabel})`,
             driveId,
@@ -664,8 +673,9 @@ export class GraphVaultClient {
       });
       if (existingRes.status === 200 && existingRes.json) {
         const existingItem = existingRes.json as GraphDriveItemNode;
+        const existingName = existingItem.name || folderSegments[folderSegments.length - 1];
         return {
-          name: `${existingItem.name} (${labelSuffix})`,
+          name: `${existingName} (${labelSuffix})`,
           driveId,
           rootItemId: existingItem.id,
           webUrl: existingItem.webUrl ?? "",
@@ -715,7 +725,7 @@ export class GraphVaultClient {
         const children =
           (listRes.json as GraphListResponse<GraphDriveItemNode> | undefined)?.value ?? [];
         const existingChild = children.find(
-          (c) => c.folder && c.name.toLowerCase() === segment.toLowerCase()
+          (c) => c.folder && c.name?.toLowerCase() === segment.toLowerCase()
         );
         if (existingChild) {
           lastItem = existingChild;
@@ -992,26 +1002,77 @@ export class GraphVaultClient {
   }
 
   /**
+   * Look up a single file or folder by relative path inside the vault root.
+   * Returns null if the item does not exist (404).
+   */
+  async getItemByPath(
+    target: RemoteVaultTarget,
+    relativePath: string
+  ): Promise<DeltaDriveItem | null> {
+    const base = this.baseUrl();
+    const encodedPath = relativePath
+      .split("/")
+      .map((seg) => encodeURIComponent(seg))
+      .join("/");
+    const url =
+      target.rootItemId === "root"
+        ? `${base}/drives/${target.driveId}/root:/${encodedPath}`
+        : `${base}/drives/${target.driveId}/items/${target.rootItemId}:/${encodedPath}`;
+    const res = await this.graphRequest({
+      url,
+      throwOnError: false,
+    });
+    if (res.status === 404) {
+      return null;
+    }
+    if (res.status < 200 || res.status >= 300) {
+      return null;
+    }
+    return (res.json as DeltaDriveItem) ?? null;
+  }
+
+  /**
    * Delete a file or folder by itemId on SharePoint / OneDrive.
    * Treats 404 (already deleted) as success.
    */
   async deleteItem(driveId: string, itemId: string): Promise<boolean> {
+    const res = await this.deleteItemWithETag(driveId, itemId);
+    return res.deleted;
+  }
+
+  /**
+   * Delete an item by itemId with optional optimistic concurrency (If-Match: eTag).
+   * Returns { deleted: false, conflict: true } on HTTP 412 when remote item changed.
+   */
+  async deleteItemWithETag(
+    driveId: string,
+    itemId: string,
+    expectedETag?: string
+  ): Promise<{ deleted: boolean; conflict: boolean }> {
     const base = this.baseUrl();
     const url = `${base}/drives/${driveId}/items/${itemId}`;
+    const extra: Record<string, string> = {};
+    if (expectedETag) {
+      extra["If-Match"] = expectedETag;
+    }
     const res = await this.graphRequest({
       url,
       method: "DELETE",
+      extraHeaders: extra,
       throwOnError: false,
     });
+    if (res.status === 412) {
+      return { deleted: false, conflict: true };
+    }
     if (res.status === 404) {
-      return false;
+      return { deleted: false, conflict: false };
     }
     if (res.status < 200 || res.status >= 300) {
       throw new Error(
         `Graph DELETE ${this.sanitizeUrl(url)} failed (${res.status}): ${this.formatErrorSummary(res)}`
       );
     }
-    return true;
+    return { deleted: true, conflict: false };
   }
 
   /**

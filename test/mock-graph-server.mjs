@@ -224,15 +224,18 @@ export function createMockGraphServer({ port = 0, host = "0.0.0.0", baseUrlOverr
         }
       }
       if (!next) {
-        const id = `folder-${crypto.randomUUID().slice(0, 8)}`;
+        const itemGuid = crypto.randomUUID();
+        const id = `folder-${itemGuid.slice(0, 8)}`;
         const parentPath =
           current.id === "root"
             ? `/drives/${drive.id}/root:`
             : `${current.parentReference.path}/${current.name}`;
         next = {
           id,
+          itemGuid,
+          ver: 1,
           name: seg,
-          eTag: `"etag-${globalSeq++}"`,
+          eTag: `"{${itemGuid}},1"`,
           folder: { childCount: 0 },
           parentReference: {
             driveId: drive.id,
@@ -290,14 +293,16 @@ export function createMockGraphServer({ port = 0, host = "0.0.0.0", baseUrlOverr
   }
 
   function markDeletedRecursive(drive, targetItem) {
+    const guid = targetItem.itemGuid || crypto.randomUUID();
     targetItem.deleted = { state: "deleted" };
-    targetItem.eTag = `"etag-${globalSeq++}"`;
+    targetItem.cTag = `"c:{${guid}},-1"`;
     drive.deltaSeq.set(targetItem.id, globalSeq++);
     if (targetItem.folder) {
       for (const child of drive.items.values()) {
         if (child.id !== targetItem.id && isDescendantOf(drive, child, targetItem.id)) {
+          const childGuid = child.itemGuid || crypto.randomUUID();
           child.deleted = { state: "deleted" };
-          child.eTag = `"etag-${globalSeq++}"`;
+          child.cTag = `"c:{${childGuid}},-1"`;
           drive.deltaSeq.set(child.id, globalSeq++);
         }
       }
@@ -433,6 +438,24 @@ export function createMockGraphServer({ port = 0, host = "0.0.0.0", baseUrlOverr
       return;
     }
 
+    // 1b. GET /v1.0/me/drive
+    if (req.method === "GET" && pathname === "/v1.0/me/drive") {
+      sendJson(res, 200, {
+        id: userDrive.id,
+        name: "OneDrive",
+        driveType: "business",
+        webUrl: `https://sharepoint.local/drives/${userDrive.id}/root`,
+        owner: {
+          user: {
+            displayName: user.displayName,
+            email: user.email,
+            id: user.id,
+          },
+        },
+      });
+      return;
+    }
+
     // 2. POST /v1.0/me/drive/root/children or /v1.0/me/drive/items/:parentId/children
     const createChildMatch = pathname.match(
       /^\/v1\.0\/me\/drive\/(?:(root)|items\/([^/]+))\/children$/
@@ -440,8 +463,36 @@ export function createMockGraphServer({ port = 0, host = "0.0.0.0", baseUrlOverr
     if (req.method === "POST" && createChildMatch) {
       const parentId = createChildMatch[1] ? "root" : createChildMatch[2];
       const payload = JSON.parse(rawBody || "{}");
+      const conflictBehavior = payload["@microsoft.graph.conflictBehavior"] || "fail";
+      if (conflictBehavior === "fail") {
+        for (const item of userDrive.items.values()) {
+          if (
+            item.parentReference?.id === parentId &&
+            item.name?.toLowerCase() === String(payload.name || "").toLowerCase() &&
+            !item.deleted
+          ) {
+            sendJson(res, 409, {
+              error: { code: "nameAlreadyExists", message: "Name already exists" },
+            });
+            return;
+          }
+        }
+      }
       const folder = ensureFolderHierarchy(userDrive, parentId, [payload.name]);
       sendJson(res, 201, folder);
+      return;
+    }
+
+    // 2b. GET /v1.0/me/drive/root:/:subPath (single item lookup by path)
+    const ownByPathMatch = pathname.match(/^\/v1\.0\/me\/drive\/root:\/(.+?)$/);
+    if (req.method === "GET" && ownByPathMatch && !pathname.endsWith(":/children")) {
+      const subPath = ownByPathMatch[1].replace(/:$/, "");
+      const item = findFolderByPath(userDrive, "root", subPath);
+      if (!item || item.deleted) {
+        sendJson(res, 404, { error: { code: "itemNotFound", message: "Item not found" } });
+        return;
+      }
+      sendJson(res, 200, item);
       return;
     }
 
@@ -788,21 +839,52 @@ export function createMockGraphServer({ port = 0, host = "0.0.0.0", baseUrlOverr
       const changed = [];
       let maxSeq = sinceToken;
 
+      if (sinceToken === 0 && rootItemId !== "root") {
+        const rootFolder = drive.items.get(rootItemId);
+        if (rootFolder && !rootFolder.deleted) {
+          changed.push({
+            id: rootFolder.id,
+            name: rootFolder.name,
+            eTag: rootFolder.eTag,
+            folder: rootFolder.folder,
+            parentReference: rootFolder.parentReference,
+          });
+        }
+      }
+
       for (const [id, item] of drive.items.entries()) {
         const seq = drive.deltaSeq.get(id) || 0;
         if (seq > sinceToken && isDescendantOf(drive, item, rootItemId)) {
-          changed.push({
-            id: item.id,
-            name: item.name,
-            eTag: item.eTag,
-            cTag: item.cTag,
-            deleted: item.deleted,
-            folder: item.folder,
-            file: item.file,
-            parentReference: item.parentReference,
-            lastModifiedDateTime: item.lastModifiedDateTime,
-            lastModifiedBy: item.lastModifiedBy,
-          });
+          if (item.deleted) {
+            // Match real Microsoft Graph /delta tombstone shape:
+            // `name`, `eTag`, and `parentReference.path` are omitted on deleted items!
+            changed.push({
+              id: item.id,
+              cTag: item.cTag || `"c:{${item.itemGuid || "00000000-0000-4000-8000-000000000000"}},-1"`,
+              deleted: { state: "deleted" },
+              parentReference: {
+                driveId: drive.id,
+                id: item.parentReference?.id,
+              },
+              ...(item.file
+                ? { file: { hashes: { quickXorHash: "AAAAAAAAAAAAAAAAAAAAAAAAAAA=" } } }
+                : {}),
+              ...(item.folder ? { folder: { childCount: 0 } } : {}),
+              size: 0,
+            });
+          } else {
+            changed.push({
+              id: item.id,
+              name: item.name,
+              eTag: item.eTag,
+              cTag: item.cTag,
+              folder: item.folder,
+              file: item.file,
+              parentReference: item.parentReference,
+              lastModifiedDateTime: item.lastModifiedDateTime,
+              lastModifiedBy: item.lastModifiedBy,
+            });
+          }
           if (seq > maxSeq) maxSeq = seq;
         }
       }
@@ -843,15 +925,12 @@ export function createMockGraphServer({ port = 0, host = "0.0.0.0", baseUrlOverr
       }
 
       const ifMatch = req.headers["if-match"];
-      if (existingFile && !existingFile.deleted) {
-        // Optimistic concurrency check:
-        // If caller sent If-Match and it doesn't match current eTag, OR if caller omitted If-Match
-        // on an already-existing file modified by someone else, return 412 Precondition Failed!
-        if (ifMatch && ifMatch !== existingFile.eTag) {
+      if (ifMatch) {
+        if (!existingFile || existingFile.deleted || ifMatch !== existingFile.eTag) {
           sendJson(res, 412, {
             error: {
               code: "notAllowed",
-              message: `Precondition Failed: expected ${ifMatch}, current is ${existingFile.eTag}`,
+              message: "ETag does not match current item's value",
             },
           });
           return;
@@ -859,7 +938,6 @@ export function createMockGraphServer({ port = 0, host = "0.0.0.0", baseUrlOverr
       }
 
       const nowIso = new Date().toISOString();
-      const newETag = `"etag-${globalSeq++}"`;
       const authorInfo = {
         user: {
           displayName: user.displayName,
@@ -867,21 +945,28 @@ export function createMockGraphServer({ port = 0, host = "0.0.0.0", baseUrlOverr
         },
       };
 
+      const isCreated = !existingFile || Boolean(existingFile.deleted);
       if (!existingFile) {
-        const id = `file-${crypto.randomUUID().slice(0, 8)}`;
+        const itemGuid = crypto.randomUUID();
+        const id = `file-${itemGuid.slice(0, 8)}`;
+        const newETag = `"{${itemGuid}},1"`;
+        const newCTag = `"c:{${itemGuid}},1"`;
         const parentPath =
           parentFolder.id === "root"
             ? `/drives/${drive.id}/root:`
             : `${parentFolder.parentReference.path}/${parentFolder.name}`;
         existingFile = {
           id,
+          itemGuid,
+          ver: 1,
           name: fileName,
           eTag: newETag,
-          cTag: newETag,
+          cTag: newCTag,
           file: { mimeType: "text/markdown" },
           parentReference: {
             driveId: drive.id,
             id: parentFolder.id,
+            name: parentFolder.name,
             path: parentPath,
           },
           content: rawBody,
@@ -903,8 +988,10 @@ export function createMockGraphServer({ port = 0, host = "0.0.0.0", baseUrlOverr
         drive.deltaSeq.set(id, globalSeq++);
       } else {
         existingFile.deleted = undefined;
-        existingFile.eTag = newETag;
-        existingFile.cTag = newETag;
+        existingFile.itemGuid = existingFile.itemGuid || crypto.randomUUID();
+        existingFile.ver = (existingFile.ver || 1) + 1;
+        existingFile.eTag = `"{${existingFile.itemGuid}},${existingFile.ver}"`;
+        existingFile.cTag = `"c:{${existingFile.itemGuid}},${existingFile.ver}"`;
         existingFile.content = rawBody;
         existingFile.contentBuffer = rawBuffer;
         existingFile.lastModifiedDateTime = nowIso;
@@ -922,7 +1009,7 @@ export function createMockGraphServer({ port = 0, host = "0.0.0.0", baseUrlOverr
         drive.deltaSeq.set(existingFile.id, globalSeq++);
       }
 
-      sendJson(res, 200, {
+      sendJson(res, isCreated ? 201 : 200, {
         id: existingFile.id,
         name: existingFile.name,
         eTag: existingFile.eTag,
@@ -1022,6 +1109,37 @@ export function createMockGraphServer({ port = 0, host = "0.0.0.0", baseUrlOverr
       return;
     }
 
+    // 13b. GET /v1.0/drives/:driveId/items/:rootItemId:/:relativePath
+    const getByPathMatch = pathname.match(
+      /^\/v1\.0\/drives\/([^/]+)\/items\/([^/:]+):\/(.+?)$/
+    );
+    if (req.method === "GET" && getByPathMatch && !pathname.endsWith(":/content") && !pathname.endsWith(":/children")) {
+      const [, driveId, rootItemId, encodedRelPath] = getByPathMatch;
+      const drive = drives.get(driveId);
+      if (!drive) {
+        sendJson(res, 404, { error: { code: "itemNotFound" } });
+        return;
+      }
+      const targetItem = findFolderByPath(drive, rootItemId, encodedRelPath.replace(/:$/, ""));
+      if (!targetItem || targetItem.deleted) {
+        sendJson(res, 404, { error: { code: "itemNotFound" } });
+        return;
+      }
+      sendJson(res, 200, {
+        id: targetItem.id,
+        name: targetItem.name,
+        eTag: targetItem.eTag,
+        cTag: targetItem.cTag,
+        file: targetItem.file,
+        folder: targetItem.folder,
+        parentReference: targetItem.parentReference,
+        lastModifiedDateTime: targetItem.lastModifiedDateTime,
+        lastModifiedBy: targetItem.lastModifiedBy,
+        "@microsoft.graph.downloadUrl": `${effectiveBase}/drives/${driveId}/items/${targetItem.id}/content`,
+      });
+      return;
+    }
+
     // 14. DELETE /v1.0/drives/:driveId/items/:itemId
     const deleteItemMatch = pathname.match(/^\/v1\.0\/drives\/([^/]+)\/items\/([^/:]+)$/);
     if (req.method === "DELETE" && deleteItemMatch) {
@@ -1030,6 +1148,16 @@ export function createMockGraphServer({ port = 0, host = "0.0.0.0", baseUrlOverr
       const item = drive?.items.get(itemId);
       if (!item || item.deleted) {
         sendJson(res, 404, { error: { code: "itemNotFound" } });
+        return;
+      }
+      const ifMatch = req.headers["if-match"];
+      if (ifMatch && ifMatch !== item.eTag) {
+        sendJson(res, 412, {
+          error: {
+            code: "notAllowed",
+            message: "ETag does not match current item's value",
+          },
+        });
         return;
       }
       markDeletedRecursive(drive, item);

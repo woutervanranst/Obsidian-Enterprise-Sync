@@ -1,0 +1,1037 @@
+{
+  "capturedAt": "2026-01-15",
+  "edition": "consumer",
+  "oauthTokenExchange": {
+    "status": 200,
+    "body": {
+      "token_type": "Bearer",
+      "scope": "openid profile User.Read Files.ReadWrite.All",
+      "expires_in": 3599,
+      "ext_expires_in": 3599,
+      "access_token": "<REDACTED_ACCESS_TOKEN>",
+      "refresh_token": "<REDACTED_REFRESH_TOKEN>",
+      "id_token": "<REDACTED_ID_TOKEN>"
+    }
+  },
+  "oauthTokenRefresh": {
+    "status": 200,
+    "body": {
+      "token_type": "Bearer",
+      "scope": "openid profile User.Read Files.ReadWrite.All",
+      "expires_in": 3599,
+      "ext_expires_in": 3599,
+      "access_token": "<REDACTED_ACCESS_TOKEN>",
+      "refresh_token": "<REDACTED_REFRESH_TOKEN>",
+      "id_token": "<REDACTED_ID_TOKEN>"
+    }
+  },
+  "endpoints": {
+    "GET /v1.0/me": {
+      "status": 200,
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users/$entity",
+        "userPrincipalName": "user2@outlook.example.com",
+        "id": "0000000000000001",
+        "displayName": "Alex Rivera",
+        "surname": "Rivera",
+        "givenName": "Alex",
+        "preferredLanguage": null,
+        "mail": "user2@outlook.example.com",
+        "mobilePhone": null,
+        "jobTitle": null,
+        "officeLocation": null,
+        "businessPhones": []
+      }
+    },
+    "GET /v1.0/me/drive": {
+      "status": 200,
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#drives/$entity",
+        "createdDateTime": "2026-01-15T10:00:00Z",
+        "description": "",
+        "id": "0000000000000001",
+        "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+        "name": "OneDrive",
+        "webUrl": "https://my.microsoftpersonalcontent.com/personal/user1_contoso_example_com/Documents",
+        "driveType": "personal",
+        "createdBy": {
+          "user": {
+            "displayName": "SharePoint App"
+          }
+        },
+        "lastModifiedBy": {
+          "user": {
+            "displayName": "System Account"
+          }
+        },
+        "owner": {
+          "user": {
+            "email": "user2@outlook.example.com",
+            "displayName": "Alex Rivera"
+          }
+        },
+        "quota": {
+          "deleted": 0,
+          "remaining": 1099406770176,
+          "state": "normal",
+          "total": 1099511627776,
+          "used": 104857600,
+          "storagePlanInformation": {
+            "upgradeAvailable": false
+          }
+        }
+      }
+    },
+    "POST /v1.0/me/drive/root/children (create parent folder)": {
+      "status": 201,
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users('user1%40outlook.example.com')/drive/root/children/$entity",
+        "@odata.etag": "\"{00000000-0000-4000-8000-000000000001},1\"",
+        "eTag": "\"{00000000-0000-4000-8000-000000000001},1\"",
+        "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+        "createdDateTime": "2026-01-15T10:00:00Z",
+        "id": "0000000000000002!s00000000000000000000000000000001",
+        "name": "_ObsidianSyncFixtureProbe",
+        "size": 0,
+        "webUrl": "https://onedrive.live.com/?cid=REDACTED_CID&id=REDACTED_ID",
+        "commentSettings": {
+          "commentingDisabled": {
+            "isDisabled": false
+          }
+        },
+        "createdBy": {
+          "application": {
+            "displayName": "Collaborator 1",
+            "id": "00000000-0000-4000-8000-000000000002"
+          },
+          "user": {
+            "displayName": "Alex Rivera",
+            "email": "user2@outlook.example.com"
+          }
+        },
+        "lastModifiedBy": {
+          "application": {
+            "displayName": "Collaborator 1",
+            "id": "00000000-0000-4000-8000-000000000002"
+          },
+          "user": {
+            "displayName": "Alex Rivera",
+            "email": "user2@outlook.example.com"
+          }
+        },
+        "parentReference": {
+          "driveId": "0000000000000001",
+          "driveType": "personal",
+          "id": "0000000000000002!s00000000000000000000000000000002",
+          "path": "/drives/0000000000000001/root:",
+          "sharepointIds": {
+            "listId": "00000000-0000-4000-8000-000000000003",
+            "listItemUniqueId": "00000000-0000-4000-8000-000000000004",
+            "siteId": "00000000-0000-4000-8000-000000000005",
+            "siteUrl": "https://my.microsoftpersonalcontent.com/personal/user1_contoso_example_com",
+            "tenantId": "00000000-0000-4000-8000-000000000006",
+            "webId": "00000000-0000-4000-8000-000000000007"
+          }
+        },
+        "fileSystemInfo": {
+          "createdDateTime": "2026-01-15T10:00:00Z",
+          "lastModifiedDateTime": "2026-01-15T10:00:00Z"
+        },
+        "folder": {
+          "childCount": 0,
+          "view": {
+            "sortBy": "name",
+            "sortOrder": "ascending",
+            "viewType": "thumbnails"
+          }
+        }
+      }
+    },
+    "POST /v1.0/me/drive/items/{parentId}/children (create vault)": {
+      "status": 201,
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users('user1%40outlook.example.com')/drive/items('0000000000000004%21s00000000000000000000000000000001')/children/$entity",
+        "@odata.etag": "\"{00000000-0000-4000-8000-000000000008},1\"",
+        "eTag": "\"{00000000-0000-4000-8000-000000000008},1\"",
+        "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+        "createdDateTime": "2026-01-15T10:00:00Z",
+        "id": "0000000000000002!s00000000000000000000000000000003",
+        "name": "TestVault",
+        "size": 0,
+        "webUrl": "https://onedrive.live.com/?cid=REDACTED_CID&id=REDACTED_ID",
+        "commentSettings": {
+          "commentingDisabled": {
+            "isDisabled": false
+          }
+        },
+        "createdBy": {
+          "application": {
+            "displayName": "Collaborator 1",
+            "id": "00000000-0000-4000-8000-000000000002"
+          },
+          "user": {
+            "displayName": "Alex Rivera",
+            "email": "user2@outlook.example.com"
+          }
+        },
+        "lastModifiedBy": {
+          "application": {
+            "displayName": "Collaborator 1",
+            "id": "00000000-0000-4000-8000-000000000002"
+          },
+          "user": {
+            "displayName": "Alex Rivera",
+            "email": "user2@outlook.example.com"
+          }
+        },
+        "parentReference": {
+          "driveId": "0000000000000001",
+          "driveType": "personal",
+          "id": "0000000000000002!s00000000000000000000000000000001",
+          "path": "/drives/0000000000000001/root:/_ObsidianSyncFixtureProbe",
+          "sharepointIds": {
+            "listId": "00000000-0000-4000-8000-000000000003",
+            "listItemUniqueId": "00000000-0000-4000-8000-000000000001",
+            "siteId": "00000000-0000-4000-8000-000000000005",
+            "siteUrl": "https://my.microsoftpersonalcontent.com/personal/user1_contoso_example_com",
+            "tenantId": "00000000-0000-4000-8000-000000000006",
+            "webId": "00000000-0000-4000-8000-000000000007"
+          }
+        },
+        "fileSystemInfo": {
+          "createdDateTime": "2026-01-15T10:00:00Z",
+          "lastModifiedDateTime": "2026-01-15T10:00:00Z"
+        },
+        "folder": {
+          "childCount": 0,
+          "view": {
+            "sortBy": "name",
+            "sortOrder": "ascending",
+            "viewType": "thumbnails"
+          }
+        }
+      }
+    },
+    "POST /v1.0/me/drive/items/{parentId}/children (duplicate folder 409)": {
+      "status": 409,
+      "body": {
+        "error": {
+          "code": "nameAlreadyExists",
+          "message": "Name already exists",
+          "innerError": {
+            "date": "2026-01-15T10:00:00",
+            "request-id": "00000000-0000-4000-8000-000000000009",
+            "client-request-id": "00000000-0000-4000-8000-000000000009"
+          }
+        }
+      }
+    },
+    "GET /v1.0/me/drive/root:/{folder}:/children": {
+      "status": 200,
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users('user1%40outlook.example.com')/drive/root/children",
+        "value": [
+          {
+            "createdDateTime": "2026-01-15T10:00:00Z",
+            "eTag": "\"{00000000-0000-4000-8000-000000000008},2\"",
+            "id": "0000000000000002!s00000000000000000000000000000003",
+            "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+            "name": "TestVault",
+            "webUrl": "https://onedrive.live.com/?cid=REDACTED_CID&id=REDACTED_ID",
+            "isAuthoritative": false,
+            "size": 0,
+            "createdBy": {
+              "application": {
+                "id": "00000000-0000-4000-8000-000000000002",
+                "displayName": "Collaborator 1"
+              },
+              "user": {
+                "email": "user2@outlook.example.com",
+                "id": "0000000000000001",
+                "displayName": "Alex Rivera"
+              }
+            },
+            "lastModifiedBy": {
+              "application": {
+                "id": "00000000-0000-4000-8000-000000000002",
+                "displayName": "Collaborator 1"
+              },
+              "user": {
+                "email": "user2@outlook.example.com",
+                "id": "0000000000000001",
+                "displayName": "Alex Rivera"
+              }
+            },
+            "parentReference": {
+              "driveType": "personal",
+              "driveId": "0000000000000001",
+              "id": "0000000000000002!s00000000000000000000000000000001",
+              "name": "_ObsidianSyncFixtureProbe",
+              "path": "/drive/root:/_ObsidianSyncFixtureProbe",
+              "siteId": "00000000-0000-4000-8000-000000000005"
+            },
+            "fileSystemInfo": {
+              "createdDateTime": "2026-01-15T10:00:00Z",
+              "lastModifiedDateTime": "2026-01-15T10:00:00Z"
+            },
+            "folder": {
+              "childCount": 0,
+              "view": {
+                "sortBy": "name",
+                "sortOrder": "ascending",
+                "viewType": "thumbnails"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "GET /v1.0/drives/{driveId}/items/{vaultId}/delta (initial empty)": {
+      "status": 200,
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#Collection(microsoft.graph.driveItem)",
+        "@odata.deltaLink": "https://graph.microsoft.com/v1.0/drives/0000000000000001/items/0000000000000002!s00000000000000000000000000000003/delta?token=REDACTED_TOKEN",
+        "value": [
+          {
+            "createdDateTime": "2026-01-15T10:00:00Z",
+            "eTag": "\"{00000000-0000-4000-8000-000000000008},2\"",
+            "id": "0000000000000002!s00000000000000000000000000000003",
+            "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+            "name": "TestVault",
+            "webUrl": "https://onedrive.live.com/?cid=REDACTED_CID&id=REDACTED_ID",
+            "isAuthoritative": false,
+            "size": 0,
+            "createdBy": {
+              "application": {
+                "displayName": "Collaborator 1"
+              },
+              "user": {
+                "email": "user2@outlook.example.com",
+                "id": "0000000000000001",
+                "displayName": "Alex Rivera"
+              }
+            },
+            "lastModifiedBy": {
+              "application": {
+                "displayName": "Collaborator 1"
+              },
+              "user": {
+                "email": "user2@outlook.example.com",
+                "id": "0000000000000001",
+                "displayName": "Alex Rivera"
+              }
+            },
+            "parentReference": {
+              "driveType": "personal",
+              "driveId": "0000000000000001",
+              "id": "0000000000000002!s00000000000000000000000000000001",
+              "path": "/drives/0000000000000001/root:/_ObsidianSyncFixtureProbe",
+              "siteId": "00000000-0000-4000-8000-000000000005"
+            },
+            "fileSystemInfo": {
+              "createdDateTime": "2026-01-15T10:00:00Z",
+              "lastModifiedDateTime": "2026-01-15T10:00:00Z"
+            },
+            "folder": {
+              "childCount": 0,
+              "view": {}
+            }
+          }
+        ]
+      }
+    },
+    "PUT /v1.0/drives/{driveId}/items/{vaultId}:/{path}:/content (create v1)": {
+      "status": 201,
+      "headers": {
+        "content-type": "application/json;odata.metadata=minimal;odata.streaming=true;IEEE754Compatible=false;charset=utf-8",
+        "request-id": "00000000-0000-4000-8000-000000000010"
+      },
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#drives('0000000000000001')/items/$entity",
+        "@microsoft.graph.downloadUrl": "https://my.microsoftpersonalcontent.com/redacted-download-url",
+        "createdDateTime": "2026-01-15T10:00:00Z",
+        "eTag": "\"{00000000-0000-4000-8000-000000000011},1\"",
+        "id": "0000000000000002!s00000000000000000000000000000004",
+        "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+        "name": "Hello.md",
+        "webUrl": "https://onedrive.live.com/?cid=REDACTED_CID&id=REDACTED_ID",
+        "cTag": "\"c:{00000000-0000-4000-8000-000000000011},1\"",
+        "isAuthoritative": false,
+        "size": 23,
+        "createdBy": {
+          "application": {
+            "id": "00000000-0000-4000-8000-000000000002",
+            "displayName": "Collaborator 1"
+          },
+          "user": {
+            "email": "user2@outlook.example.com",
+            "id": "0000000000000001",
+            "displayName": "Alex Rivera"
+          }
+        },
+        "lastModifiedBy": {
+          "application": {
+            "id": "00000000-0000-4000-8000-000000000002",
+            "displayName": "Collaborator 1"
+          },
+          "user": {
+            "email": "user2@outlook.example.com",
+            "id": "0000000000000001",
+            "displayName": "Alex Rivera"
+          }
+        },
+        "parentReference": {
+          "driveType": "personal",
+          "driveId": "0000000000000001",
+          "id": "0000000000000002!s00000000000000000000000000000005",
+          "name": "Notes",
+          "path": "/drives/0000000000000001/root:/_ObsidianSyncFixtureProbe/TestVault/Notes",
+          "siteId": "00000000-0000-4000-8000-000000000005"
+        },
+        "file": {
+          "mimeType": "text/markdown",
+          "hashes": {
+            "quickXorHash": "ggxziona2Na6EcBXb4Mc2EAGBVg="
+          }
+        },
+        "fileSystemInfo": {
+          "createdDateTime": "2026-01-15T10:00:00Z",
+          "lastModifiedDateTime": "2026-01-15T10:00:00Z"
+        }
+      }
+    },
+    "PUT /v1.0/drives/{driveId}/items/{vaultId}:/{path}:/content (update v2 with If-Match)": {
+      "status": 200,
+      "headers": {
+        "content-type": "application/json;odata.metadata=minimal;odata.streaming=true;IEEE754Compatible=false;charset=utf-8",
+        "request-id": "00000000-0000-4000-8000-000000000010"
+      },
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#drives('0000000000000001')/items/$entity",
+        "@microsoft.graph.downloadUrl": "https://my.microsoftpersonalcontent.com/redacted-download-url",
+        "createdDateTime": "2026-01-15T10:00:00Z",
+        "eTag": "\"{00000000-0000-4000-8000-000000000011},2\"",
+        "id": "0000000000000002!s00000000000000000000000000000004",
+        "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+        "name": "Hello.md",
+        "webUrl": "https://onedrive.live.com/?cid=REDACTED_CID&id=REDACTED_ID",
+        "cTag": "\"c:{00000000-0000-4000-8000-000000000011},2\"",
+        "isAuthoritative": false,
+        "size": 23,
+        "createdBy": {
+          "application": {
+            "id": "00000000-0000-4000-8000-000000000002",
+            "displayName": "Collaborator 1"
+          },
+          "user": {
+            "email": "user2@outlook.example.com",
+            "id": "0000000000000001",
+            "displayName": "Alex Rivera"
+          }
+        },
+        "lastModifiedBy": {
+          "application": {
+            "id": "00000000-0000-4000-8000-000000000002",
+            "displayName": "Collaborator 1"
+          },
+          "user": {
+            "email": "user2@outlook.example.com",
+            "id": "0000000000000001",
+            "displayName": "Alex Rivera"
+          }
+        },
+        "parentReference": {
+          "driveType": "personal",
+          "driveId": "0000000000000001",
+          "id": "0000000000000002!s00000000000000000000000000000005",
+          "name": "Notes",
+          "path": "/drives/0000000000000001/root:/_ObsidianSyncFixtureProbe/TestVault/Notes",
+          "siteId": "00000000-0000-4000-8000-000000000005"
+        },
+        "file": {
+          "mimeType": "text/markdown",
+          "hashes": {
+            "quickXorHash": "ggxziona2Na6EcxXb4Mc2EAGBVg="
+          }
+        },
+        "fileSystemInfo": {
+          "createdDateTime": "2026-01-15T10:00:00Z",
+          "lastModifiedDateTime": "2026-01-15T10:00:00Z"
+        }
+      }
+    },
+    "PUT /v1.0/drives/{driveId}/items/{vaultId}:/{path}:/content (stale If-Match -> 412)": {
+      "status": 412,
+      "headers": {
+        "content-type": "application/json",
+        "request-id": "00000000-0000-4000-8000-000000000010"
+      },
+      "body": {
+        "error": {
+          "code": "notAllowed",
+          "message": "ETag does not match current item's value",
+          "innerError": {
+            "date": "2026-01-15T10:00:00",
+            "request-id": "00000000-0000-4000-8000-000000000012",
+            "client-request-id": "00000000-0000-4000-8000-000000000012"
+          }
+        }
+      }
+    },
+    "GET /v1.0/drives/{driveId}/items/{itemId}": {
+      "status": 200,
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#drives('0000000000000001')/items/$entity",
+        "@microsoft.graph.downloadUrl": "https://my.microsoftpersonalcontent.com/redacted-download-url",
+        "createdDateTime": "2026-01-15T10:00:00Z",
+        "eTag": "\"{00000000-0000-4000-8000-000000000011},2\"",
+        "id": "0000000000000002!s00000000000000000000000000000004",
+        "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+        "name": "Hello.md",
+        "webUrl": "https://onedrive.live.com/?cid=REDACTED_CID&id=REDACTED_ID",
+        "cTag": "\"c:{00000000-0000-4000-8000-000000000011},2\"",
+        "isAuthoritative": false,
+        "size": 23,
+        "createdBy": {
+          "application": {
+            "id": "00000000-0000-4000-8000-000000000002",
+            "displayName": "Collaborator 1"
+          },
+          "user": {
+            "email": "user2@outlook.example.com",
+            "id": "0000000000000001",
+            "displayName": "Alex Rivera"
+          }
+        },
+        "lastModifiedBy": {
+          "application": {
+            "id": "00000000-0000-4000-8000-000000000002",
+            "displayName": "Collaborator 1"
+          },
+          "user": {
+            "email": "user2@outlook.example.com",
+            "id": "0000000000000001",
+            "displayName": "Alex Rivera"
+          }
+        },
+        "parentReference": {
+          "driveType": "personal",
+          "driveId": "0000000000000001",
+          "id": "0000000000000002!s00000000000000000000000000000005",
+          "name": "Notes",
+          "path": "/drives/0000000000000001/root:/_ObsidianSyncFixtureProbe/TestVault/Notes",
+          "siteId": "00000000-0000-4000-8000-000000000005"
+        },
+        "file": {
+          "mimeType": "text/markdown",
+          "hashes": {
+            "quickXorHash": "ggxziona2Na6EcxXb4Mc2EAGBVg="
+          }
+        },
+        "fileSystemInfo": {
+          "createdDateTime": "2026-01-15T10:00:00Z",
+          "lastModifiedDateTime": "2026-01-15T10:00:00Z"
+        }
+      }
+    },
+    "GET /v1.0/drives/{driveId}/items/{itemId}/versions": {
+      "status": 200,
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#drives('0000000000000001')/items('0000000000000004%21s00000000000000000000000000000004')/versions",
+        "value": [
+          {
+            "@microsoft.graph.downloadUrl": "https://my.microsoftpersonalcontent.com/redacted-download-url",
+            "id": "2.0",
+            "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+            "size": 23,
+            "lastModifiedBy": {
+              "application": {
+                "id": "00000000-0000-4000-8000-000000000002",
+                "displayName": "Collaborator 1"
+              },
+              "user": {
+                "email": "user2@outlook.example.com",
+                "displayName": "Alex Rivera"
+              }
+            }
+          },
+          {
+            "@microsoft.graph.downloadUrl": "https://my.microsoftpersonalcontent.com/redacted-download-url",
+            "id": "1.0",
+            "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+            "size": 23,
+            "lastModifiedBy": {
+              "application": {
+                "id": "00000000-0000-4000-8000-000000000002",
+                "displayName": "Collaborator 1"
+              },
+              "user": {
+                "email": "user2@outlook.example.com",
+                "displayName": "Alex Rivera"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "GET /v1.0/drives/{driveId}/items/{vaultId}/permissions": {
+      "status": 200,
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#drives('0000000000000001')/items('0000000000000004%21s00000000000000000000000000000003')/permissions",
+        "value": [
+          {
+            "id": "aTowIy5mfG1lbWJlcnNoaXB8dXNlcjFAb3V0bG9vay5leGFtcGxlLmNvbQ==",
+            "roles": [
+              "owner"
+            ],
+            "shareId": "aTowIy5mfG1lbWJlcnNoaXB8dXNlcjFAb3V0bG9vay5leGFtcGxlLmNvbQ==",
+            "grantedToV2": {
+              "siteUser": {
+                "displayName": "Alex Rivera",
+                "email": "user2@outlook.example.com",
+                "id": "4",
+                "loginName": "i:0#.f|membership|user2@outlook.example.com"
+              }
+            },
+            "grantedTo": {
+              "user": {
+                "displayName": "Alex Rivera",
+                "email": "user2@outlook.example.com",
+                "id": "4"
+              }
+            },
+            "link": {
+              "webUrl": "https://1drv.ms/f/c/0000000000000001/SyntheticOneDriveShareToken"
+            }
+          }
+        ]
+      }
+    },
+    "GET /v1.0/shares/{u!token}/driveItem (TestVault URL)": {
+      "status": 200,
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#shares('u%21aHR0cHM6Ly9jb250b3NvLnNoYXJlcG9pbnQuY29tL3NpdGVzL1NhbXBsZVNpdGVfMQ')/driveItem/$entity",
+        "createdDateTime": "2026-01-15T10:00:00Z",
+        "eTag": "\"{00000000-0000-4000-8000-000000000008},3\"",
+        "id": "0000000000000002!s00000000000000000000000000000003",
+        "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+        "name": "TestVault",
+        "webUrl": "https://onedrive.live.com/?cid=REDACTED_CID&id=REDACTED_ID",
+        "isAuthoritative": false,
+        "size": 0,
+        "createdBy": {
+          "application": {
+            "id": "00000000-0000-4000-8000-000000000002",
+            "displayName": "Collaborator 1"
+          },
+          "user": {
+            "email": "user2@outlook.example.com",
+            "id": "0000000000000001",
+            "displayName": "Alex Rivera"
+          }
+        },
+        "lastModifiedBy": {
+          "application": {
+            "id": "00000000-0000-4000-8000-000000000002",
+            "displayName": "Collaborator 1"
+          },
+          "user": {
+            "email": "user2@outlook.example.com",
+            "id": "0000000000000001",
+            "displayName": "Alex Rivera"
+          }
+        },
+        "parentReference": {
+          "driveType": "personal",
+          "driveId": "0000000000000001",
+          "id": "0000000000000002!s00000000000000000000000000000001",
+          "name": "_ObsidianSyncFixtureProbe",
+          "path": "/drives/0000000000000001/root:/_ObsidianSyncFixtureProbe",
+          "siteId": "00000000-0000-4000-8000-000000000005"
+        },
+        "fileSystemInfo": {
+          "createdDateTime": "2026-01-15T10:00:00Z",
+          "lastModifiedDateTime": "2026-01-15T10:00:00Z"
+        },
+        "folder": {
+          "childCount": 1,
+          "view": {
+            "sortBy": "name",
+            "sortOrder": "ascending",
+            "viewType": "thumbnails"
+          }
+        },
+        "shared": {
+          "scope": "users",
+          "owner": {
+            "user": {
+              "email": "user2@outlook.example.com",
+              "id": "0000000000000001",
+              "displayName": "Alex Rivera"
+            }
+          }
+        }
+      }
+    },
+    "GET /v1.0/drives/{driveId}/items/{vaultId}/delta (incremental create)": {
+      "status": 200,
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#Collection(microsoft.graph.driveItem)",
+        "@odata.deltaLink": "https://graph.microsoft.com/v1.0/drives/0000000000000001/items/0000000000000002!s00000000000000000000000000000003/delta?token=REDACTED_TOKEN",
+        "value": [
+          {
+            "createdDateTime": "2026-01-15T10:00:00Z",
+            "eTag": "\"{00000000-0000-4000-8000-000000000008},3\"",
+            "id": "0000000000000002!s00000000000000000000000000000003",
+            "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+            "name": "TestVault",
+            "webUrl": "https://onedrive.live.com/?cid=REDACTED_CID&id=REDACTED_ID",
+            "isAuthoritative": false,
+            "size": 0,
+            "createdBy": {
+              "application": {
+                "displayName": "Collaborator 1"
+              },
+              "user": {
+                "email": "user2@outlook.example.com",
+                "id": "0000000000000001",
+                "displayName": "Alex Rivera"
+              }
+            },
+            "lastModifiedBy": {
+              "application": {
+                "displayName": "Collaborator 1"
+              },
+              "user": {
+                "email": "user2@outlook.example.com",
+                "id": "0000000000000001",
+                "displayName": "Alex Rivera"
+              }
+            },
+            "parentReference": {
+              "driveType": "personal",
+              "driveId": "0000000000000001",
+              "id": "0000000000000002!s00000000000000000000000000000001",
+              "path": "/drives/0000000000000001/root:/_ObsidianSyncFixtureProbe",
+              "siteId": "00000000-0000-4000-8000-000000000005"
+            },
+            "fileSystemInfo": {
+              "createdDateTime": "2026-01-15T10:00:00Z",
+              "lastModifiedDateTime": "2026-01-15T10:00:00Z"
+            },
+            "folder": {
+              "childCount": 1,
+              "view": {}
+            },
+            "shared": {
+              "scope": "users",
+              "owner": {
+                "user": {
+                  "email": "user2@outlook.example.com",
+                  "id": "0000000000000001",
+                  "displayName": "Alex Rivera"
+                }
+              }
+            }
+          },
+          {
+            "createdDateTime": "2026-01-15T10:00:00Z",
+            "eTag": "\"{00000000-0000-4000-8000-000000000013},1\"",
+            "id": "0000000000000002!s00000000000000000000000000000005",
+            "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+            "name": "Notes",
+            "webUrl": "https://onedrive.live.com/?cid=REDACTED_CID&id=REDACTED_ID",
+            "isAuthoritative": false,
+            "size": 0,
+            "createdBy": {
+              "application": {
+                "displayName": "Collaborator 1"
+              },
+              "user": {
+                "email": "user2@outlook.example.com",
+                "id": "0000000000000001",
+                "displayName": "Alex Rivera"
+              }
+            },
+            "lastModifiedBy": {
+              "application": {
+                "displayName": "Collaborator 1"
+              },
+              "user": {
+                "email": "user2@outlook.example.com",
+                "id": "0000000000000001",
+                "displayName": "Alex Rivera"
+              }
+            },
+            "parentReference": {
+              "driveType": "personal",
+              "driveId": "0000000000000001",
+              "id": "0000000000000002!s00000000000000000000000000000003",
+              "path": "/drives/0000000000000001/root:/_ObsidianSyncFixtureProbe/TestVault",
+              "siteId": "00000000-0000-4000-8000-000000000005"
+            },
+            "fileSystemInfo": {
+              "createdDateTime": "2026-01-15T10:00:00Z",
+              "lastModifiedDateTime": "2026-01-15T10:00:00Z"
+            },
+            "folder": {
+              "childCount": 1,
+              "view": {}
+            },
+            "shared": {
+              "scope": "users",
+              "owner": {
+                "user": {
+                  "email": "user2@outlook.example.com",
+                  "id": "0000000000000001",
+                  "displayName": "Alex Rivera"
+                }
+              }
+            }
+          },
+          {
+            "createdDateTime": "2026-01-15T10:00:00Z",
+            "eTag": "\"{00000000-0000-4000-8000-000000000011},2\"",
+            "id": "0000000000000002!s00000000000000000000000000000004",
+            "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+            "name": "Hello.md",
+            "webUrl": "https://onedrive.live.com/?cid=REDACTED_CID&id=REDACTED_ID",
+            "cTag": "\"c:{00000000-0000-4000-8000-000000000011},2\"",
+            "isAuthoritative": false,
+            "size": 23,
+            "createdBy": {
+              "application": {
+                "displayName": "Collaborator 1"
+              },
+              "user": {
+                "email": "user2@outlook.example.com",
+                "id": "0000000000000001",
+                "displayName": "Alex Rivera"
+              }
+            },
+            "lastModifiedBy": {
+              "application": {
+                "displayName": "Collaborator 1"
+              },
+              "user": {
+                "email": "user2@outlook.example.com",
+                "id": "0000000000000001",
+                "displayName": "Alex Rivera"
+              }
+            },
+            "parentReference": {
+              "driveType": "personal",
+              "driveId": "0000000000000001",
+              "id": "0000000000000002!s00000000000000000000000000000005",
+              "path": "/drives/0000000000000001/root:/_ObsidianSyncFixtureProbe/TestVault/Notes",
+              "siteId": "00000000-0000-4000-8000-000000000005"
+            },
+            "file": {
+              "mimeType": "text/markdown",
+              "hashes": {
+                "quickXorHash": "ggxziona2Na6EcxXb4Mc2EAGBVg="
+              }
+            },
+            "fileSystemInfo": {
+              "createdDateTime": "2026-01-15T10:00:00Z",
+              "lastModifiedDateTime": "2026-01-15T10:00:00Z"
+            },
+            "shared": {
+              "scope": "users",
+              "owner": {
+                "user": {
+                  "email": "user2@outlook.example.com",
+                  "id": "0000000000000001",
+                  "displayName": "Alex Rivera"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "GET /v1.0/drives/{driveId}/items/{vaultId}/delta (incremental delete tombstone)": {
+      "status": 200,
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#Collection(microsoft.graph.driveItem)",
+        "@odata.deltaLink": "https://graph.microsoft.com/v1.0/drives/0000000000000001/items/0000000000000002!s00000000000000000000000000000003/delta?token=REDACTED_TOKEN",
+        "value": [
+          {
+            "createdDateTime": "2026-01-15T10:00:00Z",
+            "eTag": "\"{00000000-0000-4000-8000-000000000008},3\"",
+            "id": "0000000000000002!s00000000000000000000000000000003",
+            "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+            "name": "TestVault",
+            "webUrl": "https://onedrive.live.com/?cid=REDACTED_CID&id=REDACTED_ID",
+            "isAuthoritative": false,
+            "size": 0,
+            "createdBy": {
+              "application": {
+                "displayName": "Collaborator 1"
+              },
+              "user": {
+                "email": "user2@outlook.example.com",
+                "id": "0000000000000001",
+                "displayName": "Alex Rivera"
+              }
+            },
+            "lastModifiedBy": {
+              "application": {
+                "displayName": "Collaborator 1"
+              },
+              "user": {
+                "email": "user2@outlook.example.com",
+                "id": "0000000000000001",
+                "displayName": "Alex Rivera"
+              }
+            },
+            "parentReference": {
+              "driveType": "personal",
+              "driveId": "0000000000000001",
+              "id": "0000000000000002!s00000000000000000000000000000001",
+              "path": "/drives/0000000000000001/root:/_ObsidianSyncFixtureProbe",
+              "siteId": "00000000-0000-4000-8000-000000000005"
+            },
+            "fileSystemInfo": {
+              "createdDateTime": "2026-01-15T10:00:00Z",
+              "lastModifiedDateTime": "2026-01-15T10:00:00Z"
+            },
+            "folder": {
+              "childCount": 1,
+              "view": {}
+            },
+            "shared": {
+              "scope": "users",
+              "owner": {
+                "user": {
+                  "email": "user2@outlook.example.com",
+                  "id": "0000000000000001",
+                  "displayName": "Alex Rivera"
+                }
+              }
+            }
+          },
+          {
+            "id": "0000000000000002!s00000000000000000000000000000004",
+            "webUrl": "https://onedrive.live.com/?cid=REDACTED_CID&id=REDACTED_ID",
+            "cTag": "\"c:{00000000-0000-4000-8000-000000000011},-1\"",
+            "isAuthoritative": false,
+            "size": 0,
+            "parentReference": {
+              "driveType": "personal",
+              "driveId": "0000000000000001",
+              "id": "0000000000000002!s00000000000000000000000000000005",
+              "siteId": "00000000-0000-4000-8000-000000000005"
+            },
+            "deleted": {
+              "state": "deleted"
+            },
+            "file": {
+              "hashes": {
+                "quickXorHash": "AAAAAAAAAAAAAAAAAAAAAAAAAAA="
+              }
+            },
+            "fileSystemInfo": {}
+          }
+        ]
+      }
+    },
+    "GET /v1.0/me/drive/sharedWithMe": {
+      "status": 200,
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#Collection(microsoft.graph.driveItem)",
+        "value": [
+          {
+            "createdDateTime": "2026-01-15T10:00:00Z",
+            "id": "0000000000000005!s00000000000000000000000000000006",
+            "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+            "name": "SampleFolder_2",
+            "webUrl": "https://onedrive.live.com/?cid=REDACTED_CID&id=REDACTED_ID",
+            "isAuthoritative": false,
+            "size": 10269,
+            "createdBy": {
+              "user": {
+                "email": "user3@outlook.example.com",
+                "id": "user3@outlook.example.com",
+                "displayName": "Collaborator 3"
+              }
+            },
+            "lastModifiedBy": {
+              "user": {
+                "email": "user4@outlook.example.com",
+                "id": "user4@outlook.example.com",
+                "displayName": "Collaborator 4"
+              }
+            },
+            "file": {
+              "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+              "hashes": {}
+            },
+            "fileSystemInfo": {
+              "createdDateTime": "2026-01-15T10:00:00Z",
+              "lastModifiedDateTime": "2026-01-15T10:00:00Z"
+            },
+            "remoteItem": {
+              "createdDateTime": "2026-01-15T10:00:00Z",
+              "id": "0000000000000005!s00000000000000000000000000000006",
+              "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+              "name": "SampleFolder_2",
+              "size": 10269,
+              "createdBy": {
+                "user": {
+                  "email": "user3@outlook.example.com",
+                  "id": "user3@outlook.example.com",
+                  "displayName": "Collaborator 3"
+                }
+              },
+              "file": {
+                "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "hashes": {}
+              },
+              "fileSystemInfo": {
+                "createdDateTime": "2026-01-15T10:00:00Z",
+                "lastModifiedDateTime": "2026-01-15T10:00:00Z"
+              },
+              "lastModifiedBy": {
+                "user": {
+                  "email": "user4@outlook.example.com",
+                  "id": "user4@outlook.example.com",
+                  "displayName": "Collaborator 4"
+                }
+              },
+              "parentReference": {
+                "driveType": "personal",
+                "driveId": "0000000000000006"
+              },
+              "shared": {
+                "scope": "users",
+                "sharedDateTime": "2026-01-15T10:00:00Z",
+                "owner": {
+                  "user": {
+                    "id": "0000000000000006",
+                    "displayName": "Collaborator 3"
+                  }
+                },
+                "sharedBy": {
+                  "user": {
+                    "email": "user3@outlook.example.com",
+                    "id": "user3@outlook.example.com",
+                    "displayName": "Collaborator 3"
+                  }
+                }
+              },
+              "sharepointIds": {
+                "listId": "00000000-0000-4000-8000-000000000014",
+                "listItemId": "226",
+                "listItemUniqueId": "00000000-0000-4000-8000-000000000015",
+                "siteId": "00000000-0000-4000-8000-000000000016",
+                "siteUrl": "https://my.microsoftpersonalcontent.com/personal/user1_contoso_example_com",
+                "webId": "00000000-0000-4000-8000-000000000017"
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

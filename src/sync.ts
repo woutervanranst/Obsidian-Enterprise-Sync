@@ -282,7 +282,11 @@ export class CollaborativeSyncEngine {
         if (!localExists) {
           this.logger.info(`Local file deleted: '${trackedPath}' -> deleting remote item ${state.itemId}`);
           if (state.itemId) {
-            await this.graph.deleteItem(this.target.driveId, state.itemId);
+            const preserved = await this.deleteRemoteFileSafely(trackedPath, state);
+            if (preserved) {
+              summary.conflicts += 1;
+              continue;
+            }
           }
           delete this.store.files[trackedPath];
           summary.deleted = (summary.deleted || 0) + 1;
@@ -361,41 +365,121 @@ export class CollaborativeSyncEngine {
       for (const [trackedPath, state] of Object.entries({ ...this.store.files })) {
         if (trackedPath === relPath || trackedPath.startsWith(folderPrefix)) {
           if (state.itemId) {
-            await this.graph.deleteItem(this.target.driveId, state.itemId);
+            const preserved = await this.deleteRemoteFileSafely(trackedPath, state);
+            if (!preserved) {
+              delete this.store.files[trackedPath];
+              deletedCount++;
+            }
+          } else {
+            delete this.store.files[trackedPath];
           }
-          delete this.store.files[trackedPath];
-          deletedCount++;
         }
       }
+      const anyRemainingChildren = Object.keys(this.store.files).some(
+        (p) => p === relPath || p.startsWith(folderPrefix)
+      );
       for (const [trackedFolder, id] of Object.entries({ ...this.store.folders })) {
         if (trackedFolder === relPath || trackedFolder.startsWith(folderPrefix)) {
-          if (id && trackedFolder !== relPath) {
+          if (!anyRemainingChildren && id && trackedFolder !== relPath) {
             await this.graph.deleteItem(this.target.driveId, id);
           }
           delete this.store.folders[trackedFolder];
         }
       }
-      if (folderItemId) {
-        await this.graph.deleteItem(this.target.driveId, folderItemId);
-      } else {
-        await this.graph.deleteItemByPath(this.target, relPath);
+      if (!anyRemainingChildren) {
+        if (folderItemId) {
+          await this.graph.deleteItem(this.target.driveId, folderItemId);
+        } else {
+          await this.graph.deleteItemByPath(this.target, relPath);
+        }
+        deletedCount++;
       }
-      deletedCount++;
     } else {
       const state = this.store.files[relPath];
       if (state?.itemId) {
-        await this.graph.deleteItem(this.target.driveId, state.itemId);
-        delete this.store.files[relPath];
-        deletedCount++;
+        const preserved = await this.deleteRemoteFileSafely(relPath, state);
+        if (!preserved) {
+          delete this.store.files[relPath];
+          deletedCount++;
+        }
       } else {
         await this.graph.deleteItemByPath(this.target, relPath);
       }
     }
 
-    if (deletedCount > 0) {
-      await this.saveStore();
-    }
+    await this.saveStore();
     return deletedCount;
+  }
+
+  /**
+   * Deletes a tracked remote file using If-Match optimistic concurrency.
+   * If a collaborator modified the file remotely since our last sync (HTTP 412 with changed content),
+   * restores the collaborator's newer version locally instead of destroying their work.
+   * Returns true if a remote edit was detected and restored locally.
+   */
+  private async deleteRemoteFileSafely(
+    relPath: string,
+    state: SyncFileState
+  ): Promise<boolean> {
+    const delRes = await this.graph.deleteItemWithETag(
+      this.target.driveId,
+      state.itemId,
+      state.eTag || undefined
+    );
+    if (!delRes.conflict) {
+      return false;
+    }
+
+    // ETag changed on remote: verify whether content actually changed (vs metadata-only ETag bump)
+    if (state.isBinary || !isTextPath(relPath)) {
+      const remoteBin = await this.graph.downloadFileBinary(
+        this.target.driveId,
+        state.itemId
+      );
+      const remoteHash = hashBinaryBuffer(remoteBin.data);
+      if (state.binaryHash && remoteHash === state.binaryHash) {
+        await this.graph.deleteItem(this.target.driveId, state.itemId);
+        return false;
+      }
+      this.logger.warn(
+        `Delete/Modify conflict on '${relPath}': remote binary was updated by colleague — restoring remote version`
+      );
+      await this.ensureParentFolders(relPath);
+      await this.writeBinaryByPathSuppressed(relPath, remoteBin.data);
+      this.store.files[relPath] = {
+        itemId: state.itemId,
+        eTag: remoteBin.eTag,
+        baseText: "",
+        isBinary: true,
+        binaryHash: remoteHash,
+        lastSyncedMtime: Date.now(),
+        lastModifiedBy: remoteBin.lastModifiedBy,
+      };
+      return true;
+    }
+
+    const remote = await this.graph.downloadFileText(
+      this.target.driveId,
+      state.itemId
+    );
+    if (remote.text === state.baseText) {
+      await this.graph.deleteItem(this.target.driveId, state.itemId);
+      return false;
+    }
+
+    this.logger.warn(
+      `Delete/Modify conflict on '${relPath}': remote note was updated by colleague — restoring remote version`
+    );
+    await this.ensureParentFolders(relPath);
+    await this.writeTextByPathSuppressed(relPath, remote.text);
+    this.store.files[relPath] = {
+      itemId: state.itemId,
+      eTag: remote.eTag,
+      baseText: remote.text,
+      lastSyncedMtime: Date.now(),
+      lastModifiedBy: remote.lastModifiedBy,
+    };
+    return true;
   }
 
   /**
@@ -405,9 +489,11 @@ export class CollaborativeSyncEngine {
     oldPath: string,
     newAbstract: TFile | TFolder
   ): Promise<void> {
-    if (this.isIgnored(newAbstract.path)) return;
     const isFolder = newAbstract instanceof TFolder;
-    await this.deleteLocalPath(oldPath, isFolder);
+    if (!this.isIgnored(oldPath)) {
+      await this.deleteLocalPath(oldPath, isFolder);
+    }
+    if (this.isIgnored(newAbstract.path)) return;
 
     if (newAbstract instanceof TFile) {
       await this.pushFile(newAbstract);
@@ -419,6 +505,19 @@ export class CollaborativeSyncEngine {
         }
       }
     }
+  }
+
+  private async hasUnsyncedLocalChanges(relPath: string): Promise<boolean> {
+    const exists = await this.localPathExists(relPath);
+    if (!exists) return false;
+    const state = this.store.files[relPath];
+    if (!state) return true;
+    if (state.isBinary || !isTextPath(relPath)) {
+      const localBuf = await this.readBinaryByPath(relPath);
+      return hashBinaryBuffer(localBuf) !== state.binaryHash;
+    }
+    const localText = await this.readTextByPath(relPath);
+    return localText !== state.baseText;
   }
 
   private findTrackedFilePathByItemId(itemId: string): string | undefined {
@@ -451,6 +550,32 @@ export class CollaborativeSyncEngine {
       this.store.deltaLink
     );
 
+    // Real Microsoft Graph /delta tombstones omit `name` and `parentReference.path`,
+    // providing only `id` and `parentReference.id`. Propagate known child paths up
+    // through `parentReference.id` so nested deleted folders resolve regardless of order.
+    let inferred = true;
+    while (inferred) {
+      inferred = false;
+      for (const item of items) {
+        if (
+          !item.deleted ||
+          !item.parentReference?.id ||
+          item.parentReference.id === this.target.rootItemId
+        ) {
+          continue;
+        }
+        const knownPath =
+          this.findTrackedFilePathByItemId(item.id) ||
+          this.findTrackedFolderPathByItemId(item.id);
+        if (!knownPath || !knownPath.includes("/")) continue;
+        const parentFolderPath = knownPath.slice(0, knownPath.lastIndexOf("/"));
+        if (parentFolderPath && !this.store.folders[parentFolderPath]) {
+          this.store.folders[parentFolderPath] = item.parentReference.id;
+          inferred = true;
+        }
+      }
+    }
+
     for (const item of items) {
       if (item.id === this.target.rootItemId) {
         continue;
@@ -464,28 +589,54 @@ export class CollaborativeSyncEngine {
 
         if (trackedFolderPath && !this.isIgnored(trackedFolderPath)) {
           const prefix = `${trackedFolderPath}/`;
+          let preservedAnyChild = false;
           for (const trackedFile of Object.keys({ ...this.store.files })) {
             if (trackedFile.startsWith(prefix)) {
-              await this.removePathSuppressed(trackedFile, false);
-              delete this.store.files[trackedFile];
+              if (await this.hasUnsyncedLocalChanges(trackedFile)) {
+                this.logger.warn(
+                  `Modify/Delete conflict: folder '${trackedFolderPath}' was deleted remotely, preserving modified local file '${trackedFile}'`
+                );
+                delete this.store.files[trackedFile];
+                conflicts++;
+                preservedAnyChild = true;
+              } else {
+                await this.removePathSuppressed(trackedFile, false);
+                delete this.store.files[trackedFile];
+              }
             }
+          }
+          if (
+            !preservedAnyChild &&
+            this.getSyncableVaultFiles().some((f) => f.path.startsWith(prefix))
+          ) {
+            preservedAnyChild = true;
           }
           for (const subFolder of Object.keys({ ...this.store.folders })) {
             if (subFolder === trackedFolderPath || subFolder.startsWith(prefix)) {
               delete this.store.folders[subFolder];
             }
           }
-          await this.removePathSuppressed(trackedFolderPath, true);
-          pulled++;
+          if (!preservedAnyChild) {
+            await this.removePathSuppressed(trackedFolderPath, true);
+            pulled++;
+          }
           continue;
         }
 
         const relPath =
           this.findTrackedFilePathByItemId(item.id) || this.resolveRelativePath(item);
         if (relPath && !this.isIgnored(relPath)) {
-          await this.removePathSuppressed(relPath, false);
-          delete this.store.files[relPath];
-          pulled++;
+          if (await this.hasUnsyncedLocalChanges(relPath)) {
+            this.logger.warn(
+              `Modify/Delete conflict: '${relPath}' was deleted remotely, preserving unsynced local edits`
+            );
+            delete this.store.files[relPath];
+            conflicts++;
+          } else {
+            await this.removePathSuppressed(relPath, false);
+            delete this.store.files[relPath];
+            pulled++;
+          }
         }
         continue;
       }
@@ -520,13 +671,13 @@ export class CollaborativeSyncEngine {
         if (existsLocally) {
           const localBuf = await this.readBinaryByPath(relPath);
           const localHash = hashBinaryBuffer(localBuf);
+          const localChangedSinceSync =
+            !existingState ||
+            !existingState.binaryHash ||
+            localHash !== existingState.binaryHash;
 
-          if (
-            existingState?.binaryHash &&
-            localHash !== existingState.binaryHash &&
-            localHash !== remoteHash
-          ) {
-            // Concurrent binary edit: preserve local binary attachment as a conflict copy before writing remote
+          if (localChangedSinceSync && localHash !== remoteHash) {
+            // Concurrent or Add/Add binary edit: preserve local binary attachment as a conflict copy before writing remote
             const conflictPath = this.buildBinaryConflictPath(relPath);
             await this.writeBinaryByPathSuppressed(conflictPath, localBuf);
             conflicts++;
@@ -546,6 +697,12 @@ export class CollaborativeSyncEngine {
           };
           pulled++;
         } else {
+          if (existingState) {
+            this.logger.warn(
+              `Delete/Modify conflict on '${relPath}': deleted locally offline while modified remotely — restoring remote binary`
+            );
+            conflicts++;
+          }
           await this.ensureParentFolders(relPath);
           await this.writeBinaryByPathSuppressed(relPath, remoteBin.data);
           this.store.files[relPath] = {
@@ -569,8 +726,11 @@ export class CollaborativeSyncEngine {
       if (existsLocally) {
         const localText = await this.readTextByPath(relPath);
 
-        if (!existingState || localText === existingState.baseText) {
-          // Clean fast-forward update from colleague
+        if (
+          (existingState && localText === existingState.baseText) ||
+          localText === remote.text
+        ) {
+          // Clean fast-forward update from colleague (or identical edits on both sides)
           if (localText !== remote.text) {
             await this.writeTextByPathSuppressed(relPath, remote.text);
           }
@@ -582,35 +742,68 @@ export class CollaborativeSyncEngine {
             lastModifiedBy: remote.lastModifiedBy,
           };
           pulled++;
-        } else if (localText !== remote.text) {
-          // Both local and remote changed since baseText -> 3-way merge
-          const base = existingState.baseText;
-          const { text: mergedText, hadConflict } = this.threeWayMerge(
+        } else {
+          // Concurrent edit since baseText OR Add/Add conflict (!existingState -> empty base)
+          const base = existingState ? existingState.baseText : "";
+          let { text: mergedText, hadConflict } = this.threeWayMerge(
             base,
             localText,
             remote.text
           );
           await this.writeTextByPathSuppressed(relPath, mergedText);
 
-          const uploadRes = await this.graph.uploadFileText(
+          let uploadRes = await this.graph.uploadFileText(
             this.target,
             relPath,
             mergedText,
             remote.eTag
           );
+          let finalAuthor = remote.lastModifiedBy;
+          let fallbackETag = remote.eTag;
+
+          if (uploadRes.status === 412) {
+            const latestRemote = await this.graph.downloadFileText(
+              this.target.driveId,
+              item.id
+            );
+            const secondMerge = this.threeWayMerge(
+              remote.text,
+              mergedText,
+              latestRemote.text
+            );
+            mergedText = secondMerge.text;
+            hadConflict = hadConflict || secondMerge.hadConflict;
+            finalAuthor = latestRemote.lastModifiedBy;
+            fallbackETag = latestRemote.eTag;
+            await this.writeTextByPathSuppressed(relPath, mergedText);
+            uploadRes = await this.graph.uploadFileText(
+              this.target,
+              relPath,
+              mergedText,
+              latestRemote.eTag
+            );
+          }
+
           const finalItem = uploadRes.item ?? item;
+          this.recordImmediateParentFolder(relPath, finalItem);
           this.store.files[relPath] = {
             itemId: finalItem.id,
-            eTag: finalItem.eTag ?? remote.eTag,
+            eTag: finalItem.eTag ?? fallbackETag,
             baseText: mergedText,
             lastSyncedMtime: Date.now(),
-            lastModifiedBy: remote.lastModifiedBy,
+            lastModifiedBy: finalAuthor,
           };
           merged++;
           if (hadConflict) conflicts++;
         }
       } else {
-        // New file from SharePoint / OneDrive
+        // New file from SharePoint / OneDrive (or deleted locally offline while modified remotely)
+        if (existingState) {
+          this.logger.warn(
+            `Delete/Modify conflict on '${relPath}': deleted locally offline while modified remotely — restoring remote note`
+          );
+          conflicts++;
+        }
         await this.ensureParentFolders(relPath);
         await this.writeTextByPathSuppressed(relPath, remote.text);
         this.store.files[relPath] = {
@@ -661,6 +854,53 @@ export class CollaborativeSyncEngine {
       return { pushed: 0, merged: 0, conflicts: 0 };
     }
 
+    // Guard live untracked file creation against an unseen remote file at the same path (Add/Add conflict)
+    if (!state && !this.isSyncing) {
+      const existingRemote = await this.graph.getItemByPath(this.target, relPath);
+      if (existingRemote && !existingRemote.folder) {
+        const remote = await this.graph.downloadFileText(
+          this.target.driveId,
+          existingRemote.id
+        );
+        if (localText === remote.text) {
+          this.recordImmediateParentFolder(relPath, existingRemote);
+          this.store.files[relPath] = {
+            itemId: existingRemote.id,
+            eTag: remote.eTag || existingRemote.eTag || "",
+            baseText: localText,
+            lastSyncedMtime: Date.now(),
+            lastModifiedBy: remote.lastModifiedBy,
+          };
+          await this.saveStore();
+          return { pushed: 0, merged: 0, conflicts: 0 };
+        }
+        const { text: mergedText, hadConflict } = this.threeWayMerge(
+          "",
+          localText,
+          remote.text
+        );
+        await this.writeTextByPathSuppressed(relPath, mergedText);
+        const mergedUpload = await this.graph.uploadFileText(
+          this.target,
+          relPath,
+          mergedText,
+          remote.eTag || existingRemote.eTag
+        );
+        if (mergedUpload.item) {
+          this.recordImmediateParentFolder(relPath, mergedUpload.item);
+          this.store.files[relPath] = {
+            itemId: mergedUpload.item.id,
+            eTag: mergedUpload.item.eTag ?? "",
+            baseText: mergedText,
+            lastSyncedMtime: Date.now(),
+            lastModifiedBy: remote.lastModifiedBy,
+          };
+          await this.saveStore();
+        }
+        return { pushed: 1, merged: 1, conflicts: hadConflict ? 1 : 0 };
+      }
+    }
+
     const res = await this.graph.uploadFileText(
       this.target,
       relPath,
@@ -669,8 +909,37 @@ export class CollaborativeSyncEngine {
     );
 
     if (res.status === 412 && state?.itemId) {
-      // Concurrent edit detected! Fetch remote version and run 3-way diff3 merge
-      const remote = await this.graph.downloadFileText(this.target.driveId, state.itemId);
+      // Concurrent edit (or remote deletion) detected!
+      let remote: { text: string; eTag: string; lastModifiedBy?: string } | null = null;
+      try {
+        remote = await this.graph.downloadFileText(this.target.driveId, state.itemId);
+      } catch {
+        remote = null;
+      }
+
+      if (!remote) {
+        // Remote file was deleted while modified locally -> resurrect local version
+        this.logger.warn(
+          `Modify/Delete conflict on push for '${relPath}': remote item was deleted — re-creating with local edits`
+        );
+        const recreated = await this.graph.uploadFileText(
+          this.target,
+          relPath,
+          localText
+        );
+        if (recreated.item) {
+          this.recordImmediateParentFolder(relPath, recreated.item);
+          this.store.files[relPath] = {
+            itemId: recreated.item.id,
+            eTag: recreated.item.eTag ?? "",
+            baseText: localText,
+            lastSyncedMtime: Date.now(),
+          };
+          await this.saveStore();
+        }
+        return { pushed: 1, merged: 0, conflicts: 1 };
+      }
+
       const { text: mergedText, hadConflict } = this.threeWayMerge(
         state.baseText,
         localText,
@@ -686,6 +955,7 @@ export class CollaborativeSyncEngine {
       );
 
       if (retry.item) {
+        this.recordImmediateParentFolder(relPath, retry.item);
         this.store.files[relPath] = {
           itemId: retry.item.id,
           eTag: retry.item.eTag ?? "",
@@ -699,6 +969,7 @@ export class CollaborativeSyncEngine {
     }
 
     if (res.item) {
+      this.recordImmediateParentFolder(relPath, res.item);
       this.store.files[relPath] = {
         itemId: res.item.id,
         eTag: res.item.eTag ?? "",
@@ -732,6 +1003,48 @@ export class CollaborativeSyncEngine {
       return { pushed: 0, merged: 0, conflicts: 0 };
     }
 
+    // Guard live untracked binary creation against an unseen remote binary at the same path (Add/Add conflict)
+    if (!state && !this.isSyncing) {
+      const existingRemote = await this.graph.getItemByPath(this.target, relPath);
+      if (existingRemote && !existingRemote.folder) {
+        const remoteBin = await this.graph.downloadFileBinary(
+          this.target.driveId,
+          existingRemote.id
+        );
+        const remoteHash = hashBinaryBuffer(remoteBin.data);
+        if (localHash === remoteHash) {
+          this.recordImmediateParentFolder(relPath, existingRemote);
+          this.store.files[relPath] = {
+            itemId: existingRemote.id,
+            eTag: remoteBin.eTag || existingRemote.eTag || "",
+            baseText: "",
+            isBinary: true,
+            binaryHash: remoteHash,
+            lastSyncedMtime: Date.now(),
+            lastModifiedBy: remoteBin.lastModifiedBy,
+          };
+          await this.saveStore();
+          return { pushed: 0, merged: 0, conflicts: 0 };
+        }
+        const conflictPath = this.buildBinaryConflictPath(relPath);
+        await this.writeBinaryByPathSuppressed(conflictPath, localBuf);
+        await this.writeBinaryByPathSuppressed(relPath, remoteBin.data);
+        this.recordImmediateParentFolder(relPath, existingRemote);
+        this.store.files[relPath] = {
+          itemId: existingRemote.id,
+          eTag: remoteBin.eTag || existingRemote.eTag || "",
+          baseText: "",
+          isBinary: true,
+          binaryHash: remoteHash,
+          lastSyncedMtime: Date.now(),
+          lastModifiedBy: remoteBin.lastModifiedBy,
+        };
+        await this.pushBinaryPath(conflictPath);
+        await this.saveStore();
+        return { pushed: 1, merged: 0, conflicts: 1 };
+      }
+    }
+
     const res = await this.graph.uploadFileBinary(
       this.target,
       relPath,
@@ -740,11 +1053,40 @@ export class CollaborativeSyncEngine {
     );
 
     if (res.status === 412 && state?.itemId) {
-      // Concurrent binary update: save local copy as conflict file and update main file to remote
-      const remoteBin = await this.graph.downloadFileBinary(
-        this.target.driveId,
-        state.itemId
-      );
+      // Concurrent binary update (or remote deletion):
+      let remoteBin: { data: ArrayBuffer; eTag: string; lastModifiedBy?: string } | null =
+        null;
+      try {
+        remoteBin = await this.graph.downloadFileBinary(
+          this.target.driveId,
+          state.itemId
+        );
+      } catch {
+        remoteBin = null;
+      }
+
+      if (!remoteBin) {
+        const recreated = await this.graph.uploadFileBinary(
+          this.target,
+          relPath,
+          localBuf
+        );
+        if (recreated.item) {
+          this.recordImmediateParentFolder(relPath, recreated.item);
+          this.store.files[relPath] = {
+            itemId: recreated.item.id,
+            eTag: recreated.item.eTag ?? "",
+            baseText: "",
+            isBinary: true,
+            binaryHash: localHash,
+            lastSyncedMtime: Date.now(),
+          };
+          await this.saveStore();
+        }
+        return { pushed: 1, merged: 0, conflicts: 1 };
+      }
+
+      // Save local copy as conflict file and update main file to remote
       const conflictPath = this.buildBinaryConflictPath(relPath);
       await this.writeBinaryByPathSuppressed(conflictPath, localBuf);
       await this.writeBinaryByPathSuppressed(relPath, remoteBin.data);
@@ -764,6 +1106,7 @@ export class CollaborativeSyncEngine {
     }
 
     if (res.item) {
+      this.recordImmediateParentFolder(relPath, res.item);
       this.store.files[relPath] = {
         itemId: res.item.id,
         eTag: res.item.eTag ?? "",
@@ -959,7 +1302,23 @@ export class CollaborativeSyncEngine {
     }
   }
 
+  private recordImmediateParentFolder(relPath: string, item?: DeltaDriveItem): void {
+    if (!item?.parentReference?.id || item.parentReference.id === this.target.rootItemId) {
+      return;
+    }
+    const slashIdx = relPath.lastIndexOf("/");
+    if (slashIdx <= 0) return;
+    const parentFolderPath = relPath.slice(0, slashIdx);
+    if (!this.store.folders) {
+      this.store.folders = {};
+    }
+    this.store.folders[parentFolderPath] = item.parentReference.id;
+  }
+
   private resolveRelativePath(item: DeltaDriveItem): string {
+    if (!item.name) {
+      return "";
+    }
     if (item.parentReference?.id && item.parentReference.id === this.target.rootItemId) {
       return item.name;
     }

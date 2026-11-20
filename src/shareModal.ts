@@ -60,13 +60,17 @@ export class ShareVaultModal extends Modal {
         return;
       }
       for (const p of perms) {
+        const identity =
+          p.grantedToV2?.user ||
+          p.grantedToV2?.siteUser ||
+          p.grantedTo?.user;
         const name =
-          p.grantedToV2?.user?.displayName ||
-          p.grantedToV2?.user?.email ||
+          identity?.displayName ||
+          identity?.email ||
           p.invitation?.email ||
-          "Collaborator";
+          (p.link?.webUrl ? "Shared link" : "Collaborator");
         const email =
-          p.grantedToV2?.user?.email || p.invitation?.email || "";
+          identity?.email || p.invitation?.email || "";
         const roles = (p.roles || []).join(", ");
         permsListEl.createDiv({
           cls: "entra-sync-collaborator-row",

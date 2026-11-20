@@ -1,0 +1,1162 @@
+{
+  "capturedAt": "2026-01-15",
+  "edition": "enterprise",
+  "oauthTokenExchange": {
+    "status": 200,
+    "body": {
+      "token_type": "Bearer",
+      "scope": "Files.ReadWrite.All Sites.ReadWrite.All User.Read profile openid email",
+      "expires_in": 3874,
+      "ext_expires_in": 3874,
+      "access_token": "<REDACTED_ACCESS_TOKEN>",
+      "refresh_token": "<REDACTED_REFRESH_TOKEN>",
+      "id_token": "<REDACTED_ID_TOKEN>"
+    }
+  },
+  "oauthTokenRefresh": {
+    "status": 200,
+    "body": {
+      "token_type": "Bearer",
+      "scope": "Files.ReadWrite.All Sites.ReadWrite.All User.Read profile openid email",
+      "expires_in": 4673,
+      "ext_expires_in": 4673,
+      "access_token": "<REDACTED_ACCESS_TOKEN>",
+      "refresh_token": "<REDACTED_REFRESH_TOKEN>",
+      "id_token": "<REDACTED_ID_TOKEN>"
+    }
+  },
+  "endpoints": {
+    "GET /v1.0/me": {
+      "status": 200,
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users/$entity",
+        "businessPhones": [],
+        "displayName": "Jordan Patel",
+        "givenName": "Jordan",
+        "jobTitle": null,
+        "mail": "user2@contoso.example.com",
+        "mobilePhone": null,
+        "officeLocation": null,
+        "preferredLanguage": "en-US",
+        "surname": "Patel",
+        "userPrincipalName": "user2@contoso.example.com",
+        "id": "00000000-0000-4000-8000-000000000001"
+      }
+    },
+    "GET /v1.0/me/drive": {
+      "status": 200,
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#drives/$entity",
+        "createdDateTime": "2026-01-15T10:00:00Z",
+        "description": "",
+        "id": "b!SyntheticSharePointDriveId000100000000000000000000",
+        "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+        "name": "Documenten",
+        "webUrl": "https://contoso-my.sharepoint.com/personal/user1_contoso_example_com/Documents",
+        "driveType": "business",
+        "createdBy": {
+          "user": {
+            "displayName": "Systeemaccount"
+          }
+        },
+        "lastModifiedBy": {
+          "user": {
+            "email": "user2@contoso.example.com",
+            "id": "00000000-0000-4000-8000-000000000001",
+            "displayName": "Jordan Patel"
+          }
+        },
+        "owner": {
+          "user": {
+            "email": "user2@contoso.example.com",
+            "id": "00000000-0000-4000-8000-000000000001",
+            "displayName": "Jordan Patel"
+          }
+        },
+        "quota": {
+          "deleted": 0,
+          "remaining": 1099406770176,
+          "state": "normal",
+          "total": 1099511627776,
+          "used": 104857600
+        }
+      }
+    },
+    "POST /v1.0/me/drive/root/children (create parent folder)": {
+      "status": 201,
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users('00000000-0000-4000-8000-000000000001')/drive/root/children/$entity",
+        "@odata.etag": "\"{00000000-0000-4000-8000-000000000002},1\"",
+        "eTag": "\"{00000000-0000-4000-8000-000000000002},1\"",
+        "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+        "createdDateTime": "2026-01-15T10:00:00Z",
+        "id": "01SYNTHETICITEM0000000000000000001",
+        "name": "_ObsidianSyncFixtureProbe",
+        "size": 0,
+        "webUrl": "https://contoso-my.sharepoint.com/personal/user1_contoso_example_com/Documents/_ObsidianSyncFixtureProbe",
+        "commentSettings": {
+          "commentingDisabled": {
+            "isDisabled": false
+          }
+        },
+        "createdBy": {
+          "application": {
+            "displayName": "Collaborator 1",
+            "id": "00000000-0000-4000-8000-000000000003"
+          },
+          "user": {
+            "displayName": "Jordan Patel",
+            "email": "user2@contoso.example.com",
+            "id": "00000000-0000-4000-8000-000000000001"
+          }
+        },
+        "lastModifiedBy": {
+          "application": {
+            "displayName": "Collaborator 1",
+            "id": "00000000-0000-4000-8000-000000000003"
+          },
+          "user": {
+            "displayName": "Jordan Patel",
+            "email": "user2@contoso.example.com",
+            "id": "00000000-0000-4000-8000-000000000001"
+          }
+        },
+        "parentReference": {
+          "driveId": "b!SyntheticSharePointDriveId000100000000000000000000",
+          "driveType": "business",
+          "id": "01SYNTHETICITEM0000000000000000002",
+          "path": "/drives/b!SyntheticSharePointDriveId000100000000000000000000/root:",
+          "sharepointIds": {
+            "listId": "00000000-0000-4000-8000-000000000004",
+            "listItemUniqueId": "00000000-0000-4000-8000-000000000005",
+            "siteId": "00000000-0000-4000-8000-000000000006",
+            "siteUrl": "https://contoso-my.sharepoint.com/personal/user1_contoso_example_com",
+            "tenantId": "00000000-0000-4000-8000-000000000007",
+            "webId": "00000000-0000-4000-8000-000000000008"
+          }
+        },
+        "fileSystemInfo": {
+          "createdDateTime": "2026-01-15T10:00:00Z",
+          "lastModifiedDateTime": "2026-01-15T10:00:00Z"
+        },
+        "folder": {
+          "childCount": 0
+        }
+      }
+    },
+    "POST /v1.0/me/drive/items/{parentId}/children (create vault)": {
+      "status": 201,
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users('00000000-0000-4000-8000-000000000001')/drive/items('01SYNTHETICITEM0000000000000000001')/children/$entity",
+        "@odata.etag": "\"{00000000-0000-4000-8000-000000000009},1\"",
+        "eTag": "\"{00000000-0000-4000-8000-000000000009},1\"",
+        "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+        "createdDateTime": "2026-01-15T10:00:00Z",
+        "id": "01SYNTHETICITEM0000000000000000003",
+        "name": "TestVault",
+        "size": 0,
+        "webUrl": "https://contoso-my.sharepoint.com/personal/user1_contoso_example_com/Documents/_ObsidianSyncFixtureProbe/TestVault",
+        "commentSettings": {
+          "commentingDisabled": {
+            "isDisabled": false
+          }
+        },
+        "createdBy": {
+          "application": {
+            "displayName": "Collaborator 1",
+            "id": "00000000-0000-4000-8000-000000000003"
+          },
+          "user": {
+            "displayName": "Jordan Patel",
+            "email": "user2@contoso.example.com",
+            "id": "00000000-0000-4000-8000-000000000001"
+          }
+        },
+        "lastModifiedBy": {
+          "application": {
+            "displayName": "Collaborator 1",
+            "id": "00000000-0000-4000-8000-000000000003"
+          },
+          "user": {
+            "displayName": "Jordan Patel",
+            "email": "user2@contoso.example.com",
+            "id": "00000000-0000-4000-8000-000000000001"
+          }
+        },
+        "parentReference": {
+          "driveId": "b!SyntheticSharePointDriveId000100000000000000000000",
+          "driveType": "business",
+          "id": "01SYNTHETICITEM0000000000000000001",
+          "path": "/drives/b!SyntheticSharePointDriveId000100000000000000000000/root:/_ObsidianSyncFixtureProbe",
+          "sharepointIds": {
+            "listId": "00000000-0000-4000-8000-000000000004",
+            "listItemUniqueId": "00000000-0000-4000-8000-000000000002",
+            "siteId": "00000000-0000-4000-8000-000000000006",
+            "siteUrl": "https://contoso-my.sharepoint.com/personal/user1_contoso_example_com",
+            "tenantId": "00000000-0000-4000-8000-000000000007",
+            "webId": "00000000-0000-4000-8000-000000000008"
+          }
+        },
+        "fileSystemInfo": {
+          "createdDateTime": "2026-01-15T10:00:00Z",
+          "lastModifiedDateTime": "2026-01-15T10:00:00Z"
+        },
+        "folder": {
+          "childCount": 0
+        }
+      }
+    },
+    "POST /v1.0/me/drive/items/{parentId}/children (duplicate folder 409)": {
+      "status": 409,
+      "body": {
+        "error": {
+          "code": "nameAlreadyExists",
+          "message": "Name already exists",
+          "innerError": {
+            "date": "2026-01-15T10:00:00",
+            "request-id": "00000000-0000-4000-8000-000000000010",
+            "client-request-id": "00000000-0000-4000-8000-000000000010"
+          }
+        }
+      }
+    },
+    "GET /v1.0/me/drive/root:/{folder}:/children": {
+      "status": 200,
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#Collection(driveItem)",
+        "value": [
+          {
+            "createdBy": {
+              "application": {
+                "id": "00000000-0000-4000-8000-000000000003",
+                "displayName": "Collaborator 1"
+              },
+              "user": {
+                "email": "user2@contoso.example.com",
+                "id": "00000000-0000-4000-8000-000000000001",
+                "displayName": "Jordan Patel"
+              }
+            },
+            "createdDateTime": "2026-01-15T10:00:00Z",
+            "eTag": "\"{00000000-0000-4000-8000-000000000009},2\"",
+            "id": "01SYNTHETICITEM0000000000000000003",
+            "lastModifiedBy": {
+              "application": {
+                "id": "00000000-0000-4000-8000-000000000003",
+                "displayName": "Collaborator 1"
+              },
+              "user": {
+                "email": "user2@contoso.example.com",
+                "id": "00000000-0000-4000-8000-000000000001",
+                "displayName": "Jordan Patel"
+              }
+            },
+            "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+            "name": "TestVault",
+            "parentReference": {
+              "driveType": "business",
+              "driveId": "b!SyntheticSharePointDriveId000100000000000000000000",
+              "id": "01SYNTHETICITEM0000000000000000001",
+              "name": "_ObsidianSyncFixtureProbe",
+              "path": "/drive/root:/_ObsidianSyncFixtureProbe",
+              "siteId": "00000000-0000-4000-8000-000000000006"
+            },
+            "webUrl": "https://contoso-my.sharepoint.com/personal/user1_contoso_example_com/Documents/_ObsidianSyncFixtureProbe/TestVault",
+            "fileSystemInfo": {
+              "createdDateTime": "2026-01-15T10:00:00Z",
+              "lastModifiedDateTime": "2026-01-15T10:00:00Z"
+            },
+            "folder": {
+              "childCount": 0
+            },
+            "isAuthoritative": false,
+            "size": 0
+          }
+        ]
+      }
+    },
+    "GET /v1.0/drives/{driveId}/items/{vaultId}/delta (initial empty)": {
+      "status": 200,
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#Collection(driveItem)",
+        "@odata.deltaLink": "https://graph.microsoft.com/v1.0/drives/b!SyntheticSharePointDriveId000100000000000000000000/items/01SYNTHETICITEM0000000000000000003/delta?token=REDACTED_TOKEN",
+        "@microsoft.graph.hasMoreData": false,
+        "@microsoft.graph.syncStatus": "FullData",
+        "value": [
+          {
+            "@odata.type": "#microsoft.graph.driveItem",
+            "createdBy": {
+              "application": {
+                "displayName": "Collaborator 1"
+              },
+              "user": {
+                "email": "user2@contoso.example.com",
+                "id": "00000000-0000-4000-8000-000000000001",
+                "displayName": "Jordan Patel"
+              }
+            },
+            "createdDateTime": "2026-01-15T10:00:00Z",
+            "eTag": "\"{00000000-0000-4000-8000-000000000009},2\"",
+            "id": "01SYNTHETICITEM0000000000000000003",
+            "lastModifiedBy": {
+              "application": {
+                "displayName": "Collaborator 1"
+              },
+              "user": {
+                "email": "user2@contoso.example.com",
+                "id": "00000000-0000-4000-8000-000000000001",
+                "displayName": "Jordan Patel"
+              }
+            },
+            "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+            "name": "TestVault",
+            "parentReference": {
+              "driveType": "business",
+              "driveId": "b!SyntheticSharePointDriveId000100000000000000000000",
+              "id": "01SYNTHETICITEM0000000000000000001",
+              "path": "/drives/b!SyntheticSharePointDriveId000100000000000000000000/root:/_ObsidianSyncFixtureProbe",
+              "siteId": "00000000-0000-4000-8000-000000000006"
+            },
+            "webUrl": "https://contoso-my.sharepoint.com/personal/user1_contoso_example_com/Documents/_ObsidianSyncFixtureProbe/TestVault",
+            "fileSystemInfo": {
+              "createdDateTime": "2026-01-15T10:00:00Z",
+              "lastModifiedDateTime": "2026-01-15T10:00:00Z"
+            },
+            "folder": {
+              "childCount": 0
+            },
+            "isAuthoritative": false,
+            "size": 0
+          }
+        ]
+      }
+    },
+    "PUT /v1.0/drives/{driveId}/items/{vaultId}:/{path}:/content (create v1)": {
+      "status": 201,
+      "headers": {
+        "content-type": "application/json;odata.metadata=minimal;odata.streaming=true;IEEE754Compatible=false;charset=utf-8",
+        "request-id": "00000000-0000-4000-8000-000000000011"
+      },
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#drives('b%21SyntheticSharePointDriveId000200000000000000000000')/items/$entity",
+        "@microsoft.graph.downloadUrl": "https://contoso-my.sharepoint.com/redacted-download-url",
+        "createdDateTime": "2026-01-15T10:00:00Z",
+        "eTag": "\"{00000000-0000-4000-8000-000000000012},1\"",
+        "id": "01SYNTHETICITEM0000000000000000004",
+        "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+        "name": "Hello.md",
+        "webUrl": "https://contoso-my.sharepoint.com/personal/user1_contoso_example_com/Documents/_ObsidianSyncFixtureProbe/TestVault/Notes/Hello.md",
+        "cTag": "\"c:{00000000-0000-4000-8000-000000000012},1\"",
+        "isAuthoritative": false,
+        "size": 23,
+        "createdBy": {
+          "application": {
+            "id": "00000000-0000-4000-8000-000000000003",
+            "displayName": "Collaborator 1"
+          },
+          "user": {
+            "email": "user2@contoso.example.com",
+            "id": "00000000-0000-4000-8000-000000000001",
+            "displayName": "Jordan Patel"
+          }
+        },
+        "lastModifiedBy": {
+          "application": {
+            "id": "00000000-0000-4000-8000-000000000003",
+            "displayName": "Collaborator 1"
+          },
+          "user": {
+            "email": "user2@contoso.example.com",
+            "id": "00000000-0000-4000-8000-000000000001",
+            "displayName": "Jordan Patel"
+          }
+        },
+        "parentReference": {
+          "driveType": "business",
+          "driveId": "b!SyntheticSharePointDriveId000100000000000000000000",
+          "id": "01SYNTHETICITEM0000000000000000005",
+          "name": "Notes",
+          "path": "/drives/b!SyntheticSharePointDriveId000100000000000000000000/root:/_ObsidianSyncFixtureProbe/TestVault/Notes",
+          "siteId": "00000000-0000-4000-8000-000000000006"
+        },
+        "file": {
+          "mimeType": "text/markdown",
+          "hashes": {
+            "quickXorHash": "ggxziona2Na6EcBXb4Mc2EAGBVg="
+          }
+        },
+        "fileSystemInfo": {
+          "createdDateTime": "2026-01-15T10:00:00Z",
+          "lastModifiedDateTime": "2026-01-15T10:00:00Z"
+        }
+      }
+    },
+    "PUT /v1.0/drives/{driveId}/items/{vaultId}:/{path}:/content (update v2 with If-Match)": {
+      "status": 200,
+      "headers": {
+        "content-type": "application/json;odata.metadata=minimal;odata.streaming=true;IEEE754Compatible=false;charset=utf-8",
+        "request-id": "00000000-0000-4000-8000-000000000011"
+      },
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#drives('b%21SyntheticSharePointDriveId000200000000000000000000')/items/$entity",
+        "@microsoft.graph.downloadUrl": "https://contoso-my.sharepoint.com/redacted-download-url",
+        "createdDateTime": "2026-01-15T10:00:00Z",
+        "eTag": "\"{00000000-0000-4000-8000-000000000012},2\"",
+        "id": "01SYNTHETICITEM0000000000000000004",
+        "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+        "name": "Hello.md",
+        "webUrl": "https://contoso-my.sharepoint.com/personal/user1_contoso_example_com/Documents/_ObsidianSyncFixtureProbe/TestVault/Notes/Hello.md",
+        "cTag": "\"c:{00000000-0000-4000-8000-000000000012},2\"",
+        "isAuthoritative": false,
+        "size": 23,
+        "createdBy": {
+          "application": {
+            "id": "00000000-0000-4000-8000-000000000003",
+            "displayName": "Collaborator 1"
+          },
+          "user": {
+            "email": "user2@contoso.example.com",
+            "id": "00000000-0000-4000-8000-000000000001",
+            "displayName": "Jordan Patel"
+          }
+        },
+        "lastModifiedBy": {
+          "application": {
+            "id": "00000000-0000-4000-8000-000000000003",
+            "displayName": "Collaborator 1"
+          },
+          "user": {
+            "email": "user2@contoso.example.com",
+            "id": "00000000-0000-4000-8000-000000000001",
+            "displayName": "Jordan Patel"
+          }
+        },
+        "parentReference": {
+          "driveType": "business",
+          "driveId": "b!SyntheticSharePointDriveId000100000000000000000000",
+          "id": "01SYNTHETICITEM0000000000000000005",
+          "name": "Notes",
+          "path": "/drives/b!SyntheticSharePointDriveId000100000000000000000000/root:/_ObsidianSyncFixtureProbe/TestVault/Notes",
+          "siteId": "00000000-0000-4000-8000-000000000006"
+        },
+        "file": {
+          "mimeType": "text/markdown",
+          "hashes": {
+            "quickXorHash": "ggxziona2Na6EcxXb4Mc2EAGBVg="
+          }
+        },
+        "fileSystemInfo": {
+          "createdDateTime": "2026-01-15T10:00:00Z",
+          "lastModifiedDateTime": "2026-01-15T10:00:00Z"
+        }
+      }
+    },
+    "PUT /v1.0/drives/{driveId}/items/{vaultId}:/{path}:/content (stale If-Match -> 412)": {
+      "status": 412,
+      "headers": {
+        "content-type": "application/json",
+        "request-id": "00000000-0000-4000-8000-000000000011"
+      },
+      "body": {
+        "error": {
+          "code": "notAllowed",
+          "message": "ETag does not match current item's value",
+          "innerError": {
+            "date": "2026-01-15T10:00:00",
+            "request-id": "00000000-0000-4000-8000-000000000013",
+            "client-request-id": "00000000-0000-4000-8000-000000000013"
+          }
+        }
+      }
+    },
+    "GET /v1.0/drives/{driveId}/items/{itemId}": {
+      "status": 200,
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#Collection(driveItem)/$entity",
+        "@microsoft.graph.downloadUrl": "https://contoso-my.sharepoint.com/redacted-download-url",
+        "@microsoft.graph.downloadUrlNoAuth": "https://contoso-my.sharepoint.com/redacted-download-url",
+        "createdBy": {
+          "application": {
+            "id": "00000000-0000-4000-8000-000000000003",
+            "displayName": "Collaborator 1"
+          },
+          "user": {
+            "email": "user2@contoso.example.com",
+            "id": "00000000-0000-4000-8000-000000000001",
+            "displayName": "Jordan Patel"
+          }
+        },
+        "createdDateTime": "2026-01-15T10:00:00Z",
+        "eTag": "\"{00000000-0000-4000-8000-000000000012},2\"",
+        "id": "01SYNTHETICITEM0000000000000000004",
+        "lastModifiedBy": {
+          "application": {
+            "id": "00000000-0000-4000-8000-000000000003",
+            "displayName": "Collaborator 1"
+          },
+          "user": {
+            "email": "user2@contoso.example.com",
+            "id": "00000000-0000-4000-8000-000000000001",
+            "displayName": "Jordan Patel"
+          }
+        },
+        "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+        "name": "Hello.md",
+        "parentReference": {
+          "driveType": "business",
+          "driveId": "b!SyntheticSharePointDriveId000100000000000000000000",
+          "id": "01SYNTHETICITEM0000000000000000005",
+          "name": "Notes",
+          "path": "/drives/b!SyntheticSharePointDriveId000100000000000000000000/root:/_ObsidianSyncFixtureProbe/TestVault/Notes",
+          "siteId": "00000000-0000-4000-8000-000000000006"
+        },
+        "webUrl": "https://contoso-my.sharepoint.com/personal/user1_contoso_example_com/Documents/_ObsidianSyncFixtureProbe/TestVault/Notes/Hello.md",
+        "cTag": "\"c:{00000000-0000-4000-8000-000000000012},2\"",
+        "file": {
+          "fileExtension": ".md",
+          "hashes": {
+            "quickXorHash": "ggxziona2Na6EcxXb4Mc2EAGBVg="
+          },
+          "mimeType": "text/markdown"
+        },
+        "fileSystemInfo": {
+          "createdDateTime": "2026-01-15T10:00:00Z",
+          "lastModifiedDateTime": "2026-01-15T10:00:00Z"
+        },
+        "isAuthoritative": false,
+        "size": 23
+      }
+    },
+    "GET /v1.0/drives/{driveId}/items/{itemId}/versions": {
+      "status": 200,
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#drives('b%21SyntheticSharePointDriveId000200000000000000000000')/items('01SYNTHETICITEM0000000000000000004')/versions",
+        "value": [
+          {
+            "@microsoft.graph.downloadUrl": "https://contoso-my.sharepoint.com/redacted-download-url",
+            "id": "2.0",
+            "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+            "size": 23,
+            "lastModifiedBy": {
+              "application": {
+                "id": "00000000-0000-4000-8000-000000000003",
+                "displayName": "Collaborator 1"
+              },
+              "user": {
+                "email": "user2@contoso.example.com",
+                "id": "00000000-0000-4000-8000-000000000001",
+                "displayName": "Jordan Patel"
+              }
+            }
+          },
+          {
+            "@microsoft.graph.downloadUrl": "https://contoso-my.sharepoint.com/redacted-download-url",
+            "id": "1.0",
+            "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+            "size": 23,
+            "lastModifiedBy": {
+              "application": {
+                "id": "00000000-0000-4000-8000-000000000003",
+                "displayName": "Collaborator 1"
+              },
+              "user": {
+                "email": "user2@contoso.example.com",
+                "id": "00000000-0000-4000-8000-000000000001",
+                "displayName": "Jordan Patel"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "GET /v1.0/drives/{driveId}/items/{vaultId}/permissions": {
+      "status": 200,
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#drives('b%21SyntheticSharePointDriveId000200000000000000000000')/items('01SYNTHETICITEM0000000000000000003')/permissions",
+        "value": [
+          {
+            "id": "aTowIy5mfG1lbWJlcnNoaXB8dXNlcjFAY29udG9zby5leGFtcGxlLmNvbQ==",
+            "roles": [
+              "owner"
+            ],
+            "shareId": "aTowIy5mfG1lbWJlcnNoaXB8dXNlcjFAY29udG9zby5leGFtcGxlLmNvbQ==",
+            "grantedToV2": {
+              "user": {
+                "@odata.type": "#microsoft.graph.sharePointIdentity",
+                "displayName": "Jordan Patel",
+                "email": "user2@contoso.example.com",
+                "id": "00000000-0000-4000-8000-000000000001"
+              },
+              "siteUser": {
+                "displayName": "Jordan Patel",
+                "email": "user2@contoso.example.com",
+                "id": "3",
+                "loginName": "i:0#.f|membership|user2@contoso.example.com"
+              }
+            },
+            "grantedTo": {
+              "user": {
+                "displayName": "Jordan Patel",
+                "email": "user2@contoso.example.com",
+                "id": "00000000-0000-4000-8000-000000000001"
+              }
+            },
+            "inheritedFrom": {}
+          }
+        ]
+      }
+    },
+    "GET /v1.0/shares/{u!token}/driveItem (TestVault URL)": {
+      "status": 200,
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#Collection(driveItem)/$entity",
+        "createdBy": {
+          "application": {
+            "id": "00000000-0000-4000-8000-000000000003",
+            "displayName": "Collaborator 1"
+          },
+          "user": {
+            "email": "user2@contoso.example.com",
+            "displayName": "Jordan Patel"
+          }
+        },
+        "createdDateTime": "2026-01-15T10:00:00Z",
+        "eTag": "\"{00000000-0000-4000-8000-000000000009},3\"",
+        "id": "01SYNTHETICITEM0000000000000000003",
+        "lastModifiedBy": {
+          "application": {
+            "id": "00000000-0000-4000-8000-000000000003",
+            "displayName": "Collaborator 1"
+          },
+          "user": {
+            "email": "user2@contoso.example.com",
+            "displayName": "Jordan Patel"
+          }
+        },
+        "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+        "name": "TestVault",
+        "parentReference": {
+          "driveType": "business",
+          "driveId": "b!SyntheticSharePointDriveId000100000000000000000000",
+          "id": "01SYNTHETICITEM0000000000000000001",
+          "name": "_ObsidianSyncFixtureProbe",
+          "path": "/drives/b!SyntheticSharePointDriveId000100000000000000000000/root:/_ObsidianSyncFixtureProbe",
+          "siteId": "00000000-0000-4000-8000-000000000006"
+        },
+        "webUrl": "https://contoso-my.sharepoint.com/personal/user1_contoso_example_com/Documents/_ObsidianSyncFixtureProbe/TestVault",
+        "fileSystemInfo": {
+          "createdDateTime": "2026-01-15T10:00:00Z",
+          "lastModifiedDateTime": "2026-01-15T10:00:00Z"
+        },
+        "folder": {
+          "childCount": 1
+        },
+        "isAuthoritative": false,
+        "shared": {
+          "scope": "users"
+        },
+        "size": 0
+      }
+    },
+    "GET /v1.0/drives/{driveId}/items/{vaultId}/delta (incremental create)": {
+      "status": 200,
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#Collection(driveItem)",
+        "@odata.deltaLink": "https://graph.microsoft.com/v1.0/drives/b!SyntheticSharePointDriveId000100000000000000000000/items/01SYNTHETICITEM0000000000000000003/delta?token=REDACTED_TOKEN",
+        "@microsoft.graph.hasMoreData": false,
+        "@microsoft.graph.lastProcessedChange": "1;1;00000000-0000-4000-8000-000000000006;639000000000000000;1000000001",
+        "@microsoft.graph.syncStatus": "Incremental",
+        "value": [
+          {
+            "@odata.type": "#microsoft.graph.driveItem",
+            "createdBy": {
+              "application": {
+                "displayName": "Collaborator 1"
+              },
+              "user": {
+                "email": "user2@contoso.example.com",
+                "id": "00000000-0000-4000-8000-000000000001",
+                "displayName": "Jordan Patel"
+              }
+            },
+            "createdDateTime": "2026-01-15T10:00:00Z",
+            "eTag": "\"{00000000-0000-4000-8000-000000000009},3\"",
+            "id": "01SYNTHETICITEM0000000000000000003",
+            "lastModifiedBy": {
+              "application": {
+                "displayName": "Collaborator 1"
+              },
+              "user": {
+                "email": "user2@contoso.example.com",
+                "id": "00000000-0000-4000-8000-000000000001",
+                "displayName": "Jordan Patel"
+              }
+            },
+            "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+            "name": "TestVault",
+            "parentReference": {
+              "driveType": "business",
+              "driveId": "b!SyntheticSharePointDriveId000100000000000000000000",
+              "id": "01SYNTHETICITEM0000000000000000001",
+              "path": "/drives/b!SyntheticSharePointDriveId000100000000000000000000/root:/_ObsidianSyncFixtureProbe",
+              "siteId": "00000000-0000-4000-8000-000000000006"
+            },
+            "webUrl": "https://contoso-my.sharepoint.com/personal/user1_contoso_example_com/Documents/_ObsidianSyncFixtureProbe/TestVault",
+            "fileSystemInfo": {
+              "createdDateTime": "2026-01-15T10:00:00Z",
+              "lastModifiedDateTime": "2026-01-15T10:00:00Z"
+            },
+            "folder": {
+              "childCount": 1
+            },
+            "isAuthoritative": false,
+            "shared": {
+              "scope": "users"
+            },
+            "size": 0
+          },
+          {
+            "@odata.type": "#microsoft.graph.driveItem",
+            "createdBy": {
+              "application": {
+                "displayName": "Collaborator 1"
+              },
+              "user": {
+                "email": "user2@contoso.example.com",
+                "id": "00000000-0000-4000-8000-000000000001",
+                "displayName": "Jordan Patel"
+              }
+            },
+            "createdDateTime": "2026-01-15T10:00:00Z",
+            "eTag": "\"{00000000-0000-4000-8000-000000000014},1\"",
+            "id": "01SYNTHETICITEM0000000000000000005",
+            "lastModifiedBy": {
+              "application": {
+                "displayName": "Collaborator 1"
+              },
+              "user": {
+                "email": "user2@contoso.example.com",
+                "id": "00000000-0000-4000-8000-000000000001",
+                "displayName": "Jordan Patel"
+              }
+            },
+            "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+            "name": "Notes",
+            "parentReference": {
+              "driveType": "business",
+              "driveId": "b!SyntheticSharePointDriveId000100000000000000000000",
+              "id": "01SYNTHETICITEM0000000000000000003",
+              "path": "/drives/b!SyntheticSharePointDriveId000100000000000000000000/root:/_ObsidianSyncFixtureProbe/TestVault",
+              "siteId": "00000000-0000-4000-8000-000000000006"
+            },
+            "webUrl": "https://contoso-my.sharepoint.com/personal/user1_contoso_example_com/Documents/_ObsidianSyncFixtureProbe/TestVault/Notes",
+            "fileSystemInfo": {
+              "createdDateTime": "2026-01-15T10:00:00Z",
+              "lastModifiedDateTime": "2026-01-15T10:00:00Z"
+            },
+            "folder": {
+              "childCount": 1
+            },
+            "isAuthoritative": false,
+            "shared": {
+              "scope": "users"
+            },
+            "size": 0
+          },
+          {
+            "@odata.type": "#microsoft.graph.driveItem",
+            "createdBy": {
+              "application": {
+                "displayName": "Collaborator 1"
+              },
+              "user": {
+                "email": "user2@contoso.example.com",
+                "id": "00000000-0000-4000-8000-000000000001",
+                "displayName": "Jordan Patel"
+              }
+            },
+            "createdDateTime": "2026-01-15T10:00:00Z",
+            "eTag": "\"{00000000-0000-4000-8000-000000000012},2\"",
+            "id": "01SYNTHETICITEM0000000000000000004",
+            "lastModifiedBy": {
+              "application": {
+                "displayName": "Collaborator 1"
+              },
+              "user": {
+                "email": "user2@contoso.example.com",
+                "id": "00000000-0000-4000-8000-000000000001",
+                "displayName": "Jordan Patel"
+              }
+            },
+            "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+            "name": "Hello.md",
+            "parentReference": {
+              "driveType": "business",
+              "driveId": "b!SyntheticSharePointDriveId000100000000000000000000",
+              "id": "01SYNTHETICITEM0000000000000000005",
+              "path": "/drives/b!SyntheticSharePointDriveId000100000000000000000000/root:/_ObsidianSyncFixtureProbe/TestVault/Notes",
+              "siteId": "00000000-0000-4000-8000-000000000006"
+            },
+            "webUrl": "https://contoso-my.sharepoint.com/personal/user1_contoso_example_com/Documents/_ObsidianSyncFixtureProbe/TestVault/Notes/Hello.md",
+            "cTag": "\"c:{00000000-0000-4000-8000-000000000012},2\"",
+            "file": {
+              "fileExtension": ".md",
+              "hashes": {
+                "quickXorHash": "ggxziona2Na6EcxXb4Mc2EAGBVg="
+              },
+              "mimeType": "text/markdown"
+            },
+            "fileSystemInfo": {
+              "createdDateTime": "2026-01-15T10:00:00Z",
+              "lastModifiedDateTime": "2026-01-15T10:00:00Z"
+            },
+            "isAuthoritative": false,
+            "shared": {
+              "scope": "users"
+            },
+            "size": 23
+          }
+        ]
+      }
+    },
+    "GET /v1.0/drives/{driveId}/items/{vaultId}/delta (incremental delete tombstone)": {
+      "status": 200,
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#Collection(driveItem)",
+        "@odata.deltaLink": "https://graph.microsoft.com/v1.0/drives/b!SyntheticSharePointDriveId000100000000000000000000/items/01SYNTHETICITEM0000000000000000003/delta?token=REDACTED_TOKEN",
+        "@microsoft.graph.hasMoreData": false,
+        "@microsoft.graph.lastProcessedChange": "1;1;00000000-0000-4000-8000-000000000006;639000000000000000;1000000001",
+        "@microsoft.graph.syncStatus": "Incremental",
+        "value": [
+          {
+            "@odata.type": "#microsoft.graph.driveItem",
+            "createdBy": {
+              "application": {
+                "displayName": "Collaborator 1"
+              },
+              "user": {
+                "email": "user2@contoso.example.com",
+                "id": "00000000-0000-4000-8000-000000000001",
+                "displayName": "Jordan Patel"
+              }
+            },
+            "createdDateTime": "2026-01-15T10:00:00Z",
+            "eTag": "\"{00000000-0000-4000-8000-000000000009},3\"",
+            "id": "01SYNTHETICITEM0000000000000000003",
+            "lastModifiedBy": {
+              "application": {
+                "displayName": "Collaborator 1"
+              },
+              "user": {
+                "email": "user2@contoso.example.com",
+                "id": "00000000-0000-4000-8000-000000000001",
+                "displayName": "Jordan Patel"
+              }
+            },
+            "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+            "name": "TestVault",
+            "parentReference": {
+              "driveType": "business",
+              "driveId": "b!SyntheticSharePointDriveId000100000000000000000000",
+              "id": "01SYNTHETICITEM0000000000000000001",
+              "path": "/drives/b!SyntheticSharePointDriveId000100000000000000000000/root:/_ObsidianSyncFixtureProbe",
+              "siteId": "00000000-0000-4000-8000-000000000006"
+            },
+            "webUrl": "https://contoso-my.sharepoint.com/personal/user1_contoso_example_com/Documents/_ObsidianSyncFixtureProbe/TestVault",
+            "fileSystemInfo": {
+              "createdDateTime": "2026-01-15T10:00:00Z",
+              "lastModifiedDateTime": "2026-01-15T10:00:00Z"
+            },
+            "folder": {
+              "childCount": 1
+            },
+            "isAuthoritative": false,
+            "shared": {
+              "scope": "users"
+            },
+            "size": 0
+          },
+          {
+            "@odata.type": "#microsoft.graph.driveItem",
+            "id": "01SYNTHETICITEM0000000000000000004",
+            "parentReference": {
+              "driveType": "business",
+              "driveId": "b!SyntheticSharePointDriveId000100000000000000000000",
+              "id": "01SYNTHETICITEM0000000000000000005",
+              "siteId": "00000000-0000-4000-8000-000000000006"
+            },
+            "cTag": "\"c:{00000000-0000-4000-8000-000000000012},-1\"",
+            "deleted": {
+              "state": "deleted"
+            },
+            "file": {
+              "hashes": {
+                "quickXorHash": "AAAAAAAAAAAAAAAAAAAAAAAAAAA="
+              }
+            },
+            "fileSystemInfo": {},
+            "isAuthoritative": false,
+            "size": 0
+          }
+        ]
+      }
+    },
+    "GET /v1.0/me/drive/sharedWithMe": {
+      "status": 200,
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#Collection(microsoft.graph.driveItem)",
+        "value": [
+          {
+            "createdDateTime": "2026-01-15T10:00:00Z",
+            "id": "01SYNTHETICITEM0000000000000000006",
+            "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+            "name": "SampleFolder_2",
+            "webUrl": "https://contoso-my.sharepoint.com/personal/user1_contoso_example_com/_layouts/15/Doc.aspx?sourcedoc=REDACTED_SOURCEDOC&file=SampleFolder_2&action=edit&mobileredirect=true&DefaultItemOpen=1",
+            "isAuthoritative": false,
+            "size": 311246,
+            "lastModifiedBy": {
+              "user": {
+                "email": "user3@contoso.example.com",
+                "id": "user3@contoso.example.com",
+                "displayName": "Collaborator 3"
+              }
+            },
+            "file": {
+              "mimeType": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+              "hashes": {}
+            },
+            "fileSystemInfo": {
+              "createdDateTime": "2026-01-15T10:00:00Z",
+              "lastModifiedDateTime": "2026-01-15T10:00:00Z"
+            },
+            "remoteItem": {
+              "createdDateTime": "2026-01-15T10:00:00Z",
+              "id": "01SYNTHETICITEM0000000000000000006",
+              "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+              "name": "SampleFolder_2",
+              "size": 311246,
+              "webDavUrl": "https://contoso-my.sharepoint.com/personal/user1_contoso_example_com/Documents/SampleFolder_2",
+              "webUrl": "https://contoso-my.sharepoint.com/personal/user1_contoso_example_com/_layouts/15/Doc.aspx?sourcedoc=REDACTED_SOURCEDOC&file=SampleFolder_2&action=edit&mobileredirect=true&DefaultItemOpen=1",
+              "file": {
+                "mimeType": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                "hashes": {}
+              },
+              "fileSystemInfo": {
+                "createdDateTime": "2026-01-15T10:00:00Z",
+                "lastModifiedDateTime": "2026-01-15T10:00:00Z"
+              },
+              "lastModifiedBy": {
+                "user": {
+                  "email": "user3@contoso.example.com",
+                  "id": "user3@contoso.example.com",
+                  "displayName": "Collaborator 3"
+                }
+              },
+              "parentReference": {
+                "driveType": "business",
+                "driveId": "b!SyntheticSharePointDriveId000300000000000000000000",
+                "id": "01SYNTHETICITEM0000000000000000007",
+                "siteId": "00000000-0000-4000-8000-000000000015"
+              },
+              "shared": {
+                "scope": "users",
+                "sharedDateTime": "2026-01-15T10:00:00Z",
+                "sharedBy": {
+                  "user": {
+                    "email": "user3@contoso.example.com",
+                    "id": "user3@contoso.example.com",
+                    "displayName": "Collaborator 3"
+                  }
+                }
+              },
+              "sharepointIds": {
+                "listId": "00000000-0000-4000-8000-000000000016",
+                "listItemId": "462",
+                "listItemUniqueId": "00000000-0000-4000-8000-000000000017",
+                "siteId": "00000000-0000-4000-8000-000000000015",
+                "siteUrl": "https://contoso-my.sharepoint.com/personal/user1_contoso_example_com",
+                "tenantId": "00000000-0000-4000-8000-000000000007",
+                "webId": "00000000-0000-4000-8000-000000000018"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "GET /v1.0/me/followedSites": {
+      "status": 200,
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#sites",
+        "value": [
+          {
+            "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+            "description": "",
+            "id": "contoso.sharepoint.com,00000000-0000-4000-8000-000000000019,00000000-0000-4000-8000-000000000020",
+            "webUrl": "https://contoso.sharepoint.com/sites/SampleSite_4",
+            "displayName": "SampleSite_5",
+            "sharepointIds": {
+              "siteId": "00000000-0000-4000-8000-000000000019",
+              "siteUrl": "https://contoso.sharepoint.com/sites/SampleSite_6",
+              "webId": "00000000-0000-4000-8000-000000000020"
+            },
+            "siteCollection": {
+              "hostname": "contoso.sharepoint.com"
+            }
+          },
+          {
+            "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+            "description": "",
+            "id": "contoso.sharepoint.com,00000000-0000-4000-8000-000000000021,00000000-0000-4000-8000-000000000022",
+            "webUrl": "https://contoso.sharepoint.com/sites/SampleSite_7",
+            "displayName": "SampleSite_8",
+            "sharepointIds": {
+              "siteId": "00000000-0000-4000-8000-000000000021",
+              "siteUrl": "https://contoso.sharepoint.com/sites/SampleSite_9",
+              "webId": "00000000-0000-4000-8000-000000000022"
+            },
+            "siteCollection": {
+              "hostname": "contoso.sharepoint.com"
+            }
+          }
+        ]
+      }
+    },
+    "GET /v1.0/sites/{siteId}/drive": {
+      "status": 200,
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#drives/$entity",
+        "createdDateTime": "2026-01-15T10:00:00Z",
+        "description": "",
+        "id": "b!SyntheticSharePointDriveId000400000000000000000000",
+        "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+        "name": "SampleFolder_10",
+        "webUrl": "https://contoso.sharepoint.com/sites/SampleSite_11/Gedeelde%20Documenten",
+        "driveType": "documentLibrary",
+        "createdBy": {
+          "user": {
+            "displayName": "SampleSite_12"
+          }
+        },
+        "lastModifiedBy": {
+          "user": {
+            "email": "user4@contoso.example.com",
+            "id": "00000000-0000-4000-8000-000000000023",
+            "displayName": "Collaborator 13"
+          }
+        },
+        "owner": {
+          "user": {
+            "email": "user2@contoso.example.com",
+            "id": "00000000-0000-4000-8000-000000000001",
+            "displayName": "Jordan Patel"
+          }
+        },
+        "quota": {
+          "deleted": 0,
+          "remaining": 1099406770176,
+          "state": "normal",
+          "total": 1099511627776,
+          "used": 104857600
+        }
+      }
+    },
+    "GET /v1.0/drives/{spDriveId}/root/children": {
+      "status": 200,
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#Collection(driveItem)",
+        "value": [
+          {
+            "createdBy": {
+              "application": {
+                "id": "00000000-0000-4000-8000-000000000024",
+                "displayName": "Collaborator 14"
+              },
+              "user": {
+                "displayName": "SampleSite_15"
+              }
+            },
+            "createdDateTime": "2026-01-15T10:00:00Z",
+            "eTag": "\"{00000000-0000-4000-8000-000000000025},3\"",
+            "id": "01SYNTHETICITEM0000000000000000008",
+            "lastModifiedBy": {
+              "application": {
+                "id": "00000000-0000-4000-8000-000000000026",
+                "displayName": "Collaborator 16"
+              },
+              "user": {
+                "displayName": "SampleSite_15"
+              }
+            },
+            "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+            "name": "SampleFolder_17",
+            "parentReference": {
+              "driveType": "documentLibrary",
+              "driveId": "b!SyntheticSharePointDriveId000400000000000000000000",
+              "id": "01SYNTHETICITEM0000000000000000009",
+              "name": "SampleFolder_18",
+              "path": "/drives/b!SyntheticSharePointDriveId000400000000000000000000/root:",
+              "siteId": "00000000-0000-4000-8000-000000000019"
+            },
+            "webUrl": "https://contoso.sharepoint.com/sites/SampleSite_19/SampleFolder_18/SampleFolder_17",
+            "fileSystemInfo": {
+              "createdDateTime": "2026-01-15T10:00:00Z",
+              "lastModifiedDateTime": "2026-01-15T10:00:00Z"
+            },
+            "folder": {
+              "childCount": 4
+            },
+            "isAuthoritative": false,
+            "shared": {
+              "scope": "users"
+            },
+            "size": 39465986
+          }
+        ]
+      }
+    },
+    "GET /v1.0/shares/{u!token}/driveItem (SharePoint/Teams URL)": {
+      "status": 200,
+      "body": {
+        "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#Collection(driveItem)/$entity",
+        "createdBy": {
+          "user": {
+            "email": "user2@contoso.example.com",
+            "displayName": "Jordan Patel"
+          }
+        },
+        "createdDateTime": "2026-01-15T10:00:00Z",
+        "eTag": "\"{00000000-0000-4000-8000-000000000027},1\"",
+        "id": "01SYNTHETICITEM0000000000000000010",
+        "lastModifiedBy": {
+          "user": {
+            "email": "user2@contoso.example.com",
+            "displayName": "Jordan Patel"
+          }
+        },
+        "lastModifiedDateTime": "2026-01-15T10:00:00Z",
+        "name": "SampleFolder_20",
+        "parentReference": {
+          "driveType": "documentLibrary",
+          "driveId": "b!SyntheticSharePointDriveId000500000000000000000000",
+          "id": "01SYNTHETICITEM0000000000000000011",
+          "name": "SampleFolder_18",
+          "path": "/drives/b!SyntheticSharePointDriveId000500000000000000000000/root:",
+          "siteId": "00000000-0000-4000-8000-000000000028"
+        },
+        "webUrl": "https://contoso.sharepoint.com/sites/SampleSite_21/SampleFolder_18/SampleFolder_20",
+        "fileSystemInfo": {
+          "createdDateTime": "2026-01-15T10:00:00Z",
+          "lastModifiedDateTime": "2026-01-15T10:00:00Z"
+        },
+        "folder": {
+          "childCount": 0
+        },
+        "isAuthoritative": false,
+        "shared": {
+          "scope": "users"
+        },
+        "size": 0
+      }
+    }
+  }
+}
