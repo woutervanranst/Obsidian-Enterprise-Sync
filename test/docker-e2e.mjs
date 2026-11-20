@@ -253,11 +253,11 @@ async function runDockerE2E() {
       await page.locator(".entra-sync-choice-card", { hasText: "Enterprise (Teams & SharePoint)" }).click();
       await page.locator("button", { hasText: "Continue" }).click();
 
-      // Step 2: Fill Directory (tenant) ID & Application (client) ID -> Sign in with browser
+      // Step 2: Fill Directory (tenant) ID & Application (client) ID -> Sign in
       const inputs = page.locator(".setting-item input[type='text']");
       await inputs.nth(0).fill(TENANT_ID);
       await inputs.nth(1).fill(CLIENT_ID);
-      await page.locator("button", { hasText: "Sign in with browser" }).click();
+      await page.locator("button", { hasText: "Sign in" }).click();
 
       const authUrl = await page.evaluate(() => window.__capturedAuthUrl);
       assert.ok(authUrl, "Browser PKCE authorize URL must be generated");

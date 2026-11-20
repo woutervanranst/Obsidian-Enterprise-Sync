@@ -160,6 +160,7 @@ class MockVault {
 }
 
 const notices = [];
+const openedModals = [];
 
 function makeMockElement(tag = "div", opts = {}) {
   const el = {
@@ -226,6 +227,7 @@ const obsidianMock = {
       this.contentEl = makeMockElement("div");
     }
     open() {
+      openedModals.push(this);
       if (typeof this.onOpen === "function") this.onOpen();
     }
     close() {
@@ -445,6 +447,16 @@ function findButton(tab, buttonText) {
   return null;
 }
 
+function findButtonIn(containerEl, buttonText) {
+  for (const setting of collectSettings(containerEl)) {
+    const button = setting.buttons.find(
+      (candidate) => candidate.buttonText === buttonText
+    );
+    if (button) return button;
+  }
+  return null;
+}
+
 function findChoiceCard(tab, titleText) {
   return collectElements(
     tab.containerEl,
@@ -491,7 +503,22 @@ async function flushMicrotasks() {
   }
 }
 
+async function clickAndConfirmNonEmptyVault(button) {
+  const modalCount = openedModals.length;
+  const pendingClick = button.click();
+  await flushMicrotasks();
+  const confirmation = openedModals[modalCount];
+  if (confirmation) {
+    await findButtonIn(
+      confirmation.contentEl,
+      "Yes, upload existing files"
+    ).click();
+  }
+  await pendingClick;
+}
+
 async function bootPlugin({ initialData = {}, port } = {}) {
+  openedModals.length = 0;
   let savedData = structuredClone(initialData);
   const openedUrls = [];
   let clipboardText = "";
@@ -562,6 +589,7 @@ async function bootPlugin({ initialData = {}, port } = {}) {
     openedUrls,
     getClipboard: () => clipboardText,
     getSavedData: () => savedData,
+    getOpenedModals: () => openedModals,
     triggerProtocol: async (params) => {
       await protocolHandlers["entra-sync-auth"](params);
     },
@@ -585,8 +613,8 @@ async function signInViaWizardConsumer(ctx, mockGraph, user) {
   assert.equal(findSettingByName(ctx.tab, "Microsoft Graph base URL"), undefined);
   assert.equal(findButton(ctx.tab, "Sign in (Entra credentials)"), null);
 
-  const signInBtn = findButton(ctx.tab, "Sign in with browser");
-  assert.ok(signInBtn, "Consumer Step 2 must render 'Sign in with browser'");
+  const signInBtn = findButton(ctx.tab, "Sign in");
+  assert.ok(signInBtn, "Consumer Step 2 must render 'Sign in'");
   await signInBtn.click();
 
   assert.equal(ctx.openedUrls.length, 1);
@@ -630,7 +658,7 @@ async function signInViaWizardEnterprise(ctx, mockGraph, user, tenantId, clientI
   await clientSetting.texts[0].type(clientId);
 
   const beforeCount = ctx.openedUrls.length;
-  await findButton(ctx.tab, "Sign in with browser").click();
+  await findButton(ctx.tab, "Sign in").click();
   assert.equal(ctx.openedUrls.length, beforeCount + 1);
 
   const authUrl = ctx.openedUrls[ctx.openedUrls.length - 1];
@@ -789,7 +817,7 @@ test("Wizard Combination 4: Consumer (OneDrive) × Open Vault by URL (1drv.ms Sh
     // 4A: Open 1drv.ms sharing link
     await findActionTab(ctx.tab, "Open vault by URL").click();
     await findSettingByName(ctx.tab, "Vault folder URL").texts[0].type(shortShareUrl);
-    await findButton(ctx.tab, "Open vault").click();
+    await clickAndConfirmNonEmptyVault(findButton(ctx.tab, "Open vault"));
 
     assert.equal(
       ctx.plugin.settings.includeSitesScope,
@@ -804,8 +832,77 @@ test("Wizard Combination 4: Consumer (OneDrive) × Open Vault by URL (1drv.ms Sh
     await findSettingByName(ctx.tab, "Vault folder URL").texts[0].type(
       "https://my.microsoftpersonalcontent.com/personal/clara_hotmail_com/Documents/ObsidianVaults/Recipes"
     );
-    await findButton(ctx.tab, "Open vault").click();
+    await clickAndConfirmNonEmptyVault(findButton(ctx.tab, "Open vault"));
     assert.equal(await ctx.vault.adapter.read("Pasta.md"), "Boil salted water.");
+  } finally {
+    await mockGraph.stop();
+  }
+});
+
+test("Opening an existing vault requires confirmation for a non-empty local vault", async () => {
+  const mockGraph = createMockGraphServer({ port: 0, host: "127.0.0.1" });
+  const port = await mockGraph.start();
+  const baseUrl = `http://127.0.0.1:${port}/v1.0`;
+  const user = {
+    id: "consumer-nonempty",
+    displayName: "Nonempty User",
+    email: "nonempty@outlook.com",
+  };
+  const makeJwt = (account) =>
+    `${Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url")}.${Buffer.from(
+      JSON.stringify({
+        oid: account.id,
+        name: account.displayName,
+        upn: account.email,
+      })
+    ).toString("base64url")}.`;
+
+  try {
+    const graph = new GraphVaultClient(async () => makeJwt(user), () => baseUrl);
+    const target = await graph.createOrGetVaultFolder(
+      "ExistingTeamVault",
+      "ObsidianVaults"
+    );
+
+    const ctx = await bootPlugin({ port });
+    await signInViaWizardConsumer(ctx, mockGraph, user);
+    await ctx.vault.create("ExistingLocalNote.md", "# Keep this local note");
+
+    const firstConnect = findVaultRowButton(ctx.tab, "ExistingTeamVault").click();
+    await flushMicrotasks();
+    const firstModal = ctx.getOpenedModals().at(-1);
+    assert.ok(firstModal, "Connecting must open a confirmation modal");
+    assert.ok(
+      collectElements(firstModal.contentEl, (el) =>
+        el.text?.includes("will upload those files")
+      ).length
+    );
+    await findButtonIn(firstModal.contentEl, "No, cancel").click();
+    await firstConnect;
+    assert.equal(ctx.plugin.settings.activeVault, undefined);
+    assert.equal(
+      await graph.getItemByPath(target, "ExistingLocalNote.md"),
+      null,
+      "Cancelling must not upload local files"
+    );
+
+    const secondConnect = findVaultRowButton(
+      ctx.tab,
+      "ExistingTeamVault"
+    ).click();
+    await flushMicrotasks();
+    const secondModal = ctx.getOpenedModals().at(-1);
+    await findButtonIn(
+      secondModal.contentEl,
+      "Yes, upload existing files"
+    ).click();
+    await secondConnect;
+
+    assert.equal(ctx.plugin.settings.activeVault?.rootItemId, target.rootItemId);
+    assert.ok(
+      await graph.getItemByPath(target, "ExistingLocalNote.md"),
+      "Confirming must allow the existing local file to upload"
+    );
   } finally {
     await mockGraph.stop();
   }
@@ -829,12 +926,28 @@ test("Wizard Combination 5: Enterprise Sign-In Validation, IT Admin Copy, Back/F
     await findButton(ctx.tab, "Continue").click();
 
     // Validation when fields are empty
-    await findButton(ctx.tab, "Sign in with browser").click();
+    await findButton(ctx.tab, "Sign in").click();
     assert.equal(ctx.openedUrls.length, 0, "Must not open browser when Tenant/Client ID are empty");
     assert.ok(
       notices.some((m) =>
         m.includes("Directory (tenant) ID") && m.includes("Application (client) ID")
       )
+    );
+
+    const emailSetting = findSettingByName(
+      ctx.tab,
+      "Enter your email to check the configuration"
+    );
+    assert.ok(emailSetting, "Enterprise Step 2 must offer email configuration lookup");
+    await emailSetting.texts[0].type("alice@ae.be");
+    await findButton(ctx.tab, "Check configuration").click();
+    assert.equal(
+      ctx.plugin.settings.tenantId,
+      "65830af0-624d-48a0-a9da-07bd07a31094"
+    );
+    assert.equal(
+      ctx.plugin.settings.clientId,
+      "4baf3384-e011-414d-914c-3be68d03f488"
     );
 
     // Copy IT admin request template
@@ -868,7 +981,7 @@ test("Wizard Combination 5: Enterprise Sign-In Validation, IT Admin Copy, Back/F
       "11111111-2222-3333-4444-555555555555"
     );
 
-    await findButton(ctx.tab, "Sign in with browser").click();
+    await findButton(ctx.tab, "Sign in").click();
     assert.equal(ctx.openedUrls.length, 1);
     const issued = mockGraph.issueAuthCode(ctx.openedUrls[0], alice);
     assert.equal(issued.tenantId, "contoso.onmicrosoft.com");
@@ -1102,7 +1215,7 @@ test("Wizard Combination 7: Enterprise × Open Vault by URL (SharePoint Direct, 
     await findSettingByName(ctx.tab, "Vault folder URL").texts[0].type(
       "https://contoso.sharepoint.com/sites/Engineering/Shared%20Documents/PlatformVault"
     );
-    await findButton(ctx.tab, "Open vault").click();
+    await clickAndConfirmNonEmptyVault(findButton(ctx.tab, "Open vault"));
     assert.equal(await ctx.vault.adapter.read("Spec.md"), "SharePoint Spec v1");
     assert.equal(
       await ctx.vault.adapter.read("Legacy Modernization/Research.md"),
@@ -1117,7 +1230,7 @@ test("Wizard Combination 7: Enterprise × Open Vault by URL (SharePoint Direct, 
     await findSettingByName(ctx.tab, "Vault folder URL").texts[0].type(
       "https://contoso.sharepoint.com/sites/Engineering/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2FEngineering%2FShared%20Documents%2FPlatformVault&viewid=0000"
     );
-    await findButton(ctx.tab, "Open vault").click();
+    await clickAndConfirmNonEmptyVault(findButton(ctx.tab, "Open vault"));
     assert.ok(ctx.plugin.settings.activeVault.name.includes("PlatformVault"));
 
     // 7C: SharePoint fallback resolution (/sites/{host}:/{path}) when /shares/ returns 403
@@ -1126,7 +1239,7 @@ test("Wizard Combination 7: Enterprise × Open Vault by URL (SharePoint Direct, 
     await findSettingByName(ctx.tab, "Vault folder URL").texts[0].type(
       "https://fallback.sharepoint.com/sites/SecOps/Shared%20Documents/IncidentVault"
     );
-    await findButton(ctx.tab, "Open vault").click();
+    await clickAndConfirmNonEmptyVault(findButton(ctx.tab, "Open vault"));
     assert.equal(await ctx.vault.adapter.read("Runbook.md"), "Fallback Site Resolution Works");
 
     // 7D: Microsoft Teams channel URL (/teams/ProductLaunch/Shared Documents/General/LaunchVault)
@@ -1135,7 +1248,7 @@ test("Wizard Combination 7: Enterprise × Open Vault by URL (SharePoint Direct, 
     await findSettingByName(ctx.tab, "Vault folder URL").texts[0].type(
       "https://contoso.sharepoint.com/teams/ProductLaunch/Shared%20Documents/General/LaunchVault"
     );
-    await findButton(ctx.tab, "Open vault").click();
+    await clickAndConfirmNonEmptyVault(findButton(ctx.tab, "Open vault"));
     assert.equal(await ctx.vault.adapter.read("Checklist.md"), "Teams Channel Vault Synced");
 
     // 7E: Open rejects a nonempty folder without .obsidian, while Create initializes it in place.

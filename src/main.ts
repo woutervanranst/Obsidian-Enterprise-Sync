@@ -11,6 +11,37 @@ export type AccountEdition = "consumer" | "enterprise";
 export const DEFAULT_CONSUMER_CLIENT_ID = "ada87c12-a404-484b-a7dc-10c54beb2d7d";
 export const DEFAULT_GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0";
 
+export interface EnterpriseDirectoryConfiguration {
+  emailDomain: string;
+  tenantId: string;
+  clientId: string;
+}
+
+export const ENTERPRISE_DIRECTORY_CONFIGURATIONS: ReadonlyArray<
+  EnterpriseDirectoryConfiguration
+> = [
+  {
+    emailDomain: "ae.be",
+    tenantId: "65830af0-624d-48a0-a9da-07bd07a31094",
+    clientId: "4baf3384-e011-414d-914c-3be68d03f488",
+  },
+];
+
+export function findEnterpriseDirectoryConfiguration(
+  email: string
+): EnterpriseDirectoryConfiguration | undefined {
+  const normalizedEmail = email.trim().toLowerCase();
+  const separator = normalizedEmail.lastIndexOf("@");
+  if (separator <= 0 || separator === normalizedEmail.length - 1) {
+    return undefined;
+  }
+
+  const domain = normalizedEmail.slice(separator + 1);
+  return ENTERPRISE_DIRECTORY_CONFIGURATIONS.find(
+    (configuration) => configuration.emailDomain.toLowerCase() === domain
+  );
+}
+
 const ADMIN_REQUEST_TEMPLATE = [
   "Subject: Request for Microsoft Entra ID App Registration — Obsidian SharePoint & OneDrive Sync",
   "",
@@ -466,6 +497,62 @@ export default class EntraSharePointSyncPlugin extends Plugin {
 type WizardVaultMode = "discover" | "url" | "create";
 type CreateVaultTarget = "sharepoint" | "onedrive";
 
+class NonEmptyVaultConfirmationModal extends Modal {
+  private resolver?: (confirmed: boolean) => void;
+
+  constructor(app: App, private fileCount: number) {
+    super(app);
+  }
+
+  confirm(): Promise<boolean> {
+    return new Promise((resolve) => {
+      this.resolver = resolve;
+      this.open();
+    });
+  }
+
+  onOpen(): void {
+    this.contentEl.empty();
+    this.contentEl.createEl("h2", { text: "Local vault is not empty" });
+    this.contentEl.createEl("p", {
+      text: `This local vault already contains ${this.fileCount} ${
+        this.fileCount === 1 ? "file" : "files"
+      }. Connecting to an existing remote vault will upload those files.`,
+    });
+    this.contentEl.createEl("p", {
+      text: "Are you sure you want to continue? To avoid uploading them, cancel and create a new vault or use an empty local folder.",
+    });
+
+    new Setting(this.contentEl)
+      .addButton((button) =>
+        button.setButtonText("No, cancel").onClick(() => {
+          this.finish(false);
+        })
+      )
+      .addButton((button) =>
+        button
+          .setButtonText("Yes, upload existing files")
+          .setCta()
+          .onClick(() => {
+            this.finish(true);
+          })
+      );
+  }
+
+  onClose(): void {
+    this.finish(false, false);
+  }
+
+  private finish(confirmed: boolean, close = true): void {
+    const resolver = this.resolver;
+    this.resolver = undefined;
+    resolver?.(confirmed);
+    if (close) {
+      this.close();
+    }
+  }
+}
+
 class EntraSyncSettingTab extends PluginSettingTab {
   private wizardStep: 1 | 2 | 3 = 1;
   private switchingVault = false;
@@ -479,6 +566,8 @@ class EntraSyncSettingTab extends PluginSettingTab {
   private pendingOneDriveFolder = "";
   private newVaultName = "";
   private vaultUrlInput = "";
+  private enterpriseEmail = "";
+  private directoryLookupSucceeded = false;
 
   constructor(app: App, private plugin: EntraSharePointSyncPlugin) {
     super(app, plugin);
@@ -494,11 +583,37 @@ class EntraSyncSettingTab extends PluginSettingTab {
     this.display();
   }
 
-  private async connectToVault(target: RemoteVaultTarget): Promise<void> {
+  private async connectToVault(
+    target: RemoteVaultTarget,
+    confirmNonEmptyVault = true
+  ): Promise<void> {
     if (!(await this.plugin.graph.isObsidianVault(target))) {
       throw new Error(
         "This is not an existing Obsidian vault. Use Create vault to initialize this folder first."
       );
+    }
+
+    const localContentCount = this.app.vault
+      .getFiles()
+      .filter(
+        (file) =>
+          !file.path.startsWith(`${this.app.vault.configDir}/`) &&
+          !isIgnoredVaultPath(
+            file.path,
+            this.plugin.settings.syncObsidianConfig,
+            this.app.vault.configDir
+          )
+      ).length;
+
+    if (
+      confirmNonEmptyVault &&
+      localContentCount > 0 &&
+      !(await new NonEmptyVaultConfirmationModal(
+        this.app,
+        localContentCount
+      ).confirm())
+    ) {
+      return;
     }
 
     const previousVault = this.plugin.settings.activeVault;
@@ -711,7 +826,7 @@ class EntraSyncSettingTab extends PluginSettingTab {
         )
         .addButton((btn) =>
           btn
-            .setButtonText("Sign in with browser")
+            .setButtonText("Sign in")
             .setCta()
             .onClick(async () => {
               this.plugin.reinitClients();
@@ -732,19 +847,21 @@ class EntraSyncSettingTab extends PluginSettingTab {
 
     // Enterprise Step 2
     new Setting(containerEl)
-      .setName("Configure Microsoft Entra ID app registration")
+      .setName("Enterprise accounts require configuration from your admin")
       .setDesc(
-        "SharePoint Online and Microsoft Teams sites (Sites.ReadWrite.All) are automatically enabled for Enterprise accounts."
+        "Use your organization's configured Microsoft Entra ID app registration."
       )
       .setHeading();
 
-    const detailsEl = containerEl.createEl("details", {
+    const adminDetailsEl = containerEl.createEl("details", {
       cls: "entra-sync-details",
     });
-    detailsEl.createEl("summary", {
-      text: "Need these IDs? View one-time IT admin setup request",
+    adminDetailsEl.createEl("summary", {
+      text: "View one-time IT admin setup request",
     });
-    const detailsBody = detailsEl.createDiv({ cls: "entra-sync-details-body" });
+    const detailsBody = adminDetailsEl.createDiv({
+      cls: "entra-sync-details-body",
+    });
     detailsBody.createEl("pre", {
       cls: "entra-sync-version-preview",
       text: ADMIN_REQUEST_TEMPLATE,
@@ -757,6 +874,63 @@ class EntraSyncSettingTab extends PluginSettingTab {
     );
 
     new Setting(containerEl)
+      .setName("Enter your email to check the configuration")
+      .setDesc(
+        "If your organization has been added to the plugin, its Directory and Application IDs are filled in automatically."
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder("you@company.com")
+          .setValue(this.enterpriseEmail)
+          .onChange((val) => {
+            this.enterpriseEmail = val;
+            this.directoryLookupSucceeded = false;
+          })
+      )
+      .addButton((btn) =>
+        btn.setButtonText("Check configuration").onClick(async () => {
+          const configuration = findEnterpriseDirectoryConfiguration(
+            this.enterpriseEmail
+          );
+          if (!configuration) {
+            this.directoryLookupSucceeded = false;
+            new Notice(
+              "No built-in configuration found for that email. Ask your admin for the IDs or enter the configuration manually."
+            );
+            this.display();
+            return;
+          }
+
+          this.plugin.settings.tenantId = configuration.tenantId;
+          this.plugin.settings.clientId = configuration.clientId;
+          this.directoryLookupSucceeded = true;
+          await this.plugin.saveSettings();
+          this.plugin.reinitClients();
+          new Notice(
+            `Configuration found for ${configuration.emailDomain}. You can sign in now.`
+          );
+          this.display();
+        })
+      );
+
+    if (this.directoryLookupSucceeded) {
+      containerEl.createDiv({
+        cls: "entra-sync-lookup-status",
+        text: "Configuration found. Your Directory and Application IDs are ready.",
+      });
+    }
+
+    const manualDetailsEl = containerEl.createEl("details", {
+      cls: "entra-sync-details",
+    });
+    manualDetailsEl.createEl("summary", {
+      text: "Enter configuration manually",
+    });
+    const manualBody = manualDetailsEl.createDiv({
+      cls: "entra-sync-details-body",
+    });
+
+    new Setting(manualBody)
       .setName("Directory (tenant) ID")
       .setDesc(
         "Your organization's Microsoft Entra ID tenant UUID or domain (for example contoso.onmicrosoft.com)."
@@ -772,7 +946,7 @@ class EntraSyncSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    new Setting(manualBody)
       .setName("Application (client) ID")
       .setDesc(
         "Application (client) ID from your organization's Microsoft Entra app registration."
@@ -798,7 +972,7 @@ class EntraSyncSettingTab extends PluginSettingTab {
       )
       .addButton((btn) =>
         btn
-          .setButtonText("Sign in with browser")
+          .setButtonText("Sign in")
           .setCta()
           .onClick(async () => {
             if (
@@ -1187,7 +1361,7 @@ class EntraSyncSettingTab extends PluginSettingTab {
               this.newVaultName.trim(),
               parentArg
             );
-            await this.connectToVault(created);
+            await this.connectToVault(created, false);
           } catch (err) {
             new Notice(`Failed to create vault: ${String(err)}`);
           }

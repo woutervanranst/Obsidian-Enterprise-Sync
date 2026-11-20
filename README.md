@@ -28,7 +28,7 @@ Install directly from the official Obsidian Community Plugins directory:
 Open **Settings → OneDrive + Enterprise SharePoint + Teams Sync** to launch the guided 3-step onboarding wizard:
 
 1. **Step 1 — Account type**: Choose **Consumer (OneDrive)** or **Enterprise (Teams & SharePoint)**.
-2. **Step 2 — Sign in**: Authenticate in your system browser via OAuth 2.0 + PKCE (`obsidian://entra-sync-auth`). No passwords or credentials are ever entered inside Obsidian.
+2. **Step 2 — Sign in**: Authenticate in your system browser via OAuth 2.0 + PKCE (`obsidian://entra-sync-auth`). No passwords or credentials are ever entered inside Obsidian. Enterprise users can check their email domain against the built-in configuration list or enter the Directory and Application IDs manually.
 3. **Step 3 — Connect vault**: Choose **Discover vaults**, **Open vault by URL**, or **Create vault**. Once connected, the settings page switches to a clean **Connected Vault** view.
 
 ## Consumer (OneDrive)
@@ -37,7 +37,7 @@ You can use a personal Microsoft account (`outlook.com`, `live.com`, `hotmail.co
 
 1. Open **Settings → OneDrive + Enterprise SharePoint + Teams Sync**.
 2. **Step 1 — Account type**: Select **Consumer (OneDrive)** and click **Continue**.
-3. **Step 2 — Sign in**: Click **Sign in with browser** and sign in with your personal Microsoft account (`User.Read`, `Files.ReadWrite.All`, and `offline_access`).
+3. **Step 2 — Sign in**: Click **Sign in** and sign in with your personal Microsoft account (`User.Read`, `Files.ReadWrite.All`, and `offline_access`).
 4. **Step 3 — Connect vault**:
    - **Discover vaults**: Automatically lists vaults inside your OneDrive folder (default `/ObsidianVaults`—click **Change folder...** to customize, e.g. `Documents/Vaults`) as well as folders **Shared with me**, then click **Connect**.
    - **Open vault by URL**: Paste a shared OneDrive link (`https://1drv.ms/...` or `https://onedrive.live.com/...`) and click **Open vault**.
@@ -50,7 +50,18 @@ You can use a personal Microsoft account (`outlook.com`, `live.com`, `hotmail.co
 
 To use the plugin with corporate **Microsoft Entra ID** accounts, SharePoint Online, Microsoft Teams, and OneDrive for Business, a Global or Cloud Application Administrator must register a public client application in Microsoft Entra ID once for your organization.
 
-> Tip: You can also view and copy this exact request directly from **Step 2** of the plugin's setup wizard (**Need these IDs? View one-time IT admin setup request**).
+> Tip: You can also view and copy this exact request directly from **Step 2** of the plugin's setup wizard (**View one-time IT admin setup request**).
+
+### Add an Organization to the Built-In Configuration Lookup
+
+Organizations with an approved public-client app registration can make the Step 2 setup automatic for their email domain:
+
+1. Fork the repository and edit `ENTERPRISE_DIRECTORY_CONFIGURATIONS` in [`src/main.ts`](./src/main.ts).
+2. Add the organization's lowercase email domain, **Directory (tenant) ID**, and **Application (client) ID**. Do not add client secrets; the plugin supports public-client PKCE registrations only.
+3. Add or update a wizard test for the domain, run `npm test` and `npm run build`, then open a pull request against `woutervanranst/Obsidian-Enterprise-Sync`.
+4. In the pull request, confirm that the app registration belongs to the organization and that the listed redirect URI and delegated permissions from this section have been approved by its administrator.
+
+Users whose domain is not listed can expand **Enter configuration manually** in Step 2 and enter the two IDs provided by their administrator.
 
 Send the following request to your IT / Entra ID administrator:
 
@@ -82,11 +93,11 @@ Send the following request to your IT / Entra ID administrator:
 
 1. Open **Settings → OneDrive + Enterprise SharePoint + Teams Sync**.
 2. **Step 1 — Account type**: Select **Enterprise (Teams & SharePoint)** and click **Continue**. SharePoint and Microsoft Teams access (`Sites.ReadWrite.All`) is automatically enabled for Enterprise accounts.
-3. **Step 2 — Sign in**: Enter your organization's **Directory (tenant) ID** and **Application (client) ID**, then click **Sign in with browser**.
+3. **Step 2 — Sign in**: Enter your work email and click **Check configuration**. If no built-in configuration is found, expand **Enter configuration manually** and enter your organization's **Directory (tenant) ID** and **Application (client) ID**. Then click **Sign in**.
 4. **Step 3 — Connect vault**:
    - **Discover vaults**: Browse initialized vaults across your followed SharePoint & Microsoft Teams sites, **Shared with me** folders, and your **OneDrive for Business**, then click **Connect**. Discovery only lists folders that contain an `.obsidian` directory.
    - **Open vault by URL**:
-     - **SharePoint Online**: Open the target SharePoint Document Library or subfolder in your browser, copy the address bar URL (including `Forms/AllItems.aspx?id=...` or a direct folder link), paste it into **Vault folder URL**, and click **Open vault**. The folder must contain an `.obsidian` directory.
+     - **SharePoint Online**: Open the target SharePoint Document Library or subfolder in your browser, copy the address bar URL (including `Forms/AllItems.aspx?id=...` or a direct folder link), paste it into **Vault folder URL**, and click **Open vault**. The folder must contain an `.obsidian` directory. If the local vault already contains files, confirm the warning before they are uploaded; otherwise use an empty local vault folder or choose **Create vault**.
      - **Microsoft Teams**: Open your Teams channel → **Files** tab → click **Open in SharePoint**, copy the browser URL, paste it into **Vault folder URL**, and click **Open vault**.
    - **Create vault**: Choose **SharePoint or Teams library** (paste the parent library/channel URL and enter a **Vault folder name**) or **My OneDrive for Business** (choose a parent folder in OneDrive and enter a **Vault folder name**), then click **Create and connect vault**. This creates the folder when needed or initializes an existing folder by adding `.obsidian`; existing remote and local files are merged by the normal conflict-safe sync process.
 
