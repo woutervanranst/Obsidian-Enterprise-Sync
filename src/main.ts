@@ -495,14 +495,34 @@ class EntraSyncSettingTab extends PluginSettingTab {
   }
 
   private async connectToVault(target: RemoteVaultTarget): Promise<void> {
+    if (!(await this.plugin.graph.isObsidianVault(target))) {
+      throw new Error(
+        "This is not an existing Obsidian vault. Use Create vault to initialize this folder first."
+      );
+    }
+
+    const previousVault = this.plugin.settings.activeVault;
+    const previousStore = this.plugin.settings.syncStore;
     this.plugin.settings.activeVault = target;
     this.plugin.settings.syncStore = { files: {} };
-    this.switchingVault = false;
     await this.plugin.saveSettings();
     this.plugin.reinitClients();
-    await this.plugin.triggerManualSync();
-    new Notice(`Connected to vault: ${target.name}`);
-    this.display();
+    try {
+      if (!this.plugin.syncEngine) {
+        throw new Error("Sync engine could not be initialized.");
+      }
+      await this.plugin.syncEngine.syncAll();
+      this.switchingVault = false;
+      await this.plugin.saveSettings();
+      new Notice(`Connected to vault: ${target.name}`);
+      this.display();
+    } catch (err) {
+      this.plugin.settings.activeVault = previousVault;
+      this.plugin.settings.syncStore = previousStore;
+      await this.plugin.saveSettings();
+      this.plugin.reinitClients();
+      throw err;
+    }
   }
 
   private async refreshDiscoveredVaults(showNotice = false): Promise<void> {
@@ -915,8 +935,8 @@ class EntraSyncSettingTab extends PluginSettingTab {
       .setName("Available vaults")
       .setDesc(
         isEnterprise
-          ? "Scans followed SharePoint & Teams sites, folders shared with you, and your OneDrive."
-          : "Scans your OneDrive vaults folder and folders shared with you."
+          ? "Scans followed SharePoint & Teams sites, folders shared with you, and your OneDrive for folders containing an existing .obsidian directory."
+          : "Scans your OneDrive vaults folder and folders shared with you for folders containing an existing .obsidian directory."
       )
       .addButton((btn) =>
         btn
@@ -960,7 +980,11 @@ class EntraSyncSettingTab extends PluginSettingTab {
             .setButtonText("Connect")
             .setCta()
             .onClick(async () => {
-              await this.connectToVault(vault);
+              try {
+                await this.connectToVault(vault);
+              } catch (err) {
+                new Notice(`Failed to connect to vault: ${String(err)}`);
+              }
             })
         );
       }
@@ -1021,8 +1045,8 @@ class EntraSyncSettingTab extends PluginSettingTab {
       .setName("Vault folder URL")
       .setDesc(
         isEnterprise
-          ? "Paste a SharePoint library or folder URL, a Microsoft Teams channel URL (in Teams: Files -> Open in SharePoint -> copy browser URL), or a sharing link."
-          : "Paste a shared OneDrive folder link or OneDrive folder URL from your browser."
+          ? "Paste a SharePoint library or folder URL, a Microsoft Teams channel URL (in Teams: Files -> Open in SharePoint -> copy browser URL), or a sharing link. The folder must already contain .obsidian."
+          : "Paste a shared OneDrive folder link or OneDrive folder URL from your browser. The folder must already contain .obsidian."
       )
       .addText((text) =>
         text
@@ -1090,7 +1114,9 @@ class EntraSyncSettingTab extends PluginSettingTab {
 
     new Setting(panel)
       .setName("Vault folder name")
-      .setDesc("Name of the new remote folder to create for this vault.")
+      .setDesc(
+        "Name of the remote vault. If this folder already exists, it is initialized in place so its files can merge with the local vault."
+      )
       .addText((text) =>
         text
           .setPlaceholder("e.g. ProductArchitecture")

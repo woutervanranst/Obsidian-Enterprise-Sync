@@ -379,7 +379,13 @@ export class GraphVaultClient {
       }
     }
 
-    return vaults;
+    const existingVaults: RemoteVaultTarget[] = [];
+    for (const vault of vaults) {
+      if (await this.isObsidianVault(vault)) {
+        existingVaults.push(vault);
+      }
+    }
+    return existingVaults;
   }
 
   /**
@@ -400,12 +406,14 @@ export class GraphVaultClient {
       if (!cleanSub) return baseTarget;
       const suffixMatch = baseTarget.name.match(/\(([^)]+)\)\s*$/);
       const labelSuffix = suffixMatch ? suffixMatch[1] : "SharePoint";
-      return this.ensureFolderInDrive(
+      const target = await this.ensureFolderInDrive(
         baseTarget.driveId,
         cleanSub.split("/").filter(Boolean),
         baseTarget.rootItemId,
         labelSuffix
       );
+      await this.initializeVaultMarker(target);
+      return target;
     }
 
     const base = this.baseUrl();
@@ -460,12 +468,14 @@ export class GraphVaultClient {
       }
     }
 
-    return {
+    const target: RemoteVaultTarget = {
       name: `${cleanName} (My OneDrive)`,
       driveId,
       rootItemId: currentParentId,
       webUrl: lastItem?.webUrl ?? "",
     };
+    await this.initializeVaultMarker(target);
+    return target;
   }
 
   /**
@@ -636,7 +646,8 @@ export class GraphVaultClient {
         matchedDrive.id,
         folderSegments,
         "root",
-        siteLabel
+        siteLabel,
+        false
       );
     }
 
@@ -647,9 +658,20 @@ export class GraphVaultClient {
       decodedSegments[2].toLowerCase() === "documents"
     ) {
       const relSegments = decodedSegments.slice(3);
-      const vaultFolder = relSegments[relSegments.length - 1];
-      const parentPath = relSegments.slice(0, -1).join("/");
-      return this.createOrGetVaultFolder(vaultFolder, parentPath);
+      const encodedPath = relSegments.map((s) => encodeURIComponent(s)).join("/");
+      const itemRes = await this.graphRequest({
+        url: `${base}/me/drive/root:/${encodedPath}`,
+        throwOnError: false,
+      });
+      if (itemRes.status === 200 && itemRes.json) {
+        const item = itemRes.json as GraphDriveItemNode;
+        return {
+          name: `${item.name || relSegments[relSegments.length - 1]} (OneDrive)`,
+          driveId: item.parentReference?.driveId || "",
+          rootItemId: item.id,
+          webUrl: item.webUrl ?? trimmed,
+        };
+      }
     }
 
     throw new Error(
@@ -661,7 +683,8 @@ export class GraphVaultClient {
     driveId: string,
     folderSegments: string[],
     startParentId = "root",
-    labelSuffix = "SharePoint"
+    labelSuffix = "SharePoint",
+    createMissing = true
   ): Promise<RemoteVaultTarget> {
     const base = this.baseUrl();
     const encodedRel = folderSegments.map((s) => encodeURIComponent(s)).join("/");
@@ -680,6 +703,11 @@ export class GraphVaultClient {
           rootItemId: existingItem.id,
           webUrl: existingItem.webUrl ?? "",
         };
+      }
+      if (!createMissing) {
+        throw new Error(
+          `Folder '${folderSegments.join("/")}' does not exist in drive ${driveId}.`
+        );
       }
     }
 
@@ -745,6 +773,33 @@ export class GraphVaultClient {
       rootItemId: currentParentId,
       webUrl: lastItem?.webUrl ?? "",
     };
+  }
+
+  async isObsidianVault(target: RemoteVaultTarget): Promise<boolean> {
+    const base = this.baseUrl();
+    const url =
+      target.rootItemId === "root"
+        ? `${base}/drives/${target.driveId}/root:/.obsidian`
+        : `${base}/drives/${target.driveId}/items/${target.rootItemId}:/.obsidian`;
+    const res = await this.graphRequest({ url, throwOnError: false });
+    if (res.status === 404) {
+      return false;
+    }
+    if (res.status < 200 || res.status >= 300) {
+      throw new Error(
+        `Graph GET ${this.sanitizeUrl(url)} failed (${res.status}): ${this.formatErrorSummary(res)}`
+      );
+    }
+    return Boolean((res.json as DeltaDriveItem | undefined)?.folder);
+  }
+
+  async initializeVaultMarker(target: RemoteVaultTarget): Promise<void> {
+    await this.ensureFolderInDrive(
+      target.driveId,
+      [".obsidian"],
+      target.rootItemId,
+      "Obsidian"
+    );
   }
 
   /**

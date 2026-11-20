@@ -84,11 +84,11 @@ Send the following request to your IT / Entra ID administrator:
 2. **Step 1 — Account type**: Select **Enterprise (Teams & SharePoint)** and click **Continue**. SharePoint and Microsoft Teams access (`Sites.ReadWrite.All`) is automatically enabled for Enterprise accounts.
 3. **Step 2 — Sign in**: Enter your organization's **Directory (tenant) ID** and **Application (client) ID**, then click **Sign in with browser**.
 4. **Step 3 — Connect vault**:
-   - **Discover vaults**: Browse vaults across your followed SharePoint & Microsoft Teams sites, **Shared with me** folders, and your **OneDrive for Business**, then click **Connect**.
+   - **Discover vaults**: Browse initialized vaults across your followed SharePoint & Microsoft Teams sites, **Shared with me** folders, and your **OneDrive for Business**, then click **Connect**. Discovery only lists folders that contain an `.obsidian` directory.
    - **Open vault by URL**:
-     - **SharePoint Online**: Open the target SharePoint Document Library or subfolder in your browser, copy the address bar URL (including `Forms/AllItems.aspx?id=...` or a direct folder link), paste it into **Vault folder URL**, and click **Open vault**.
+     - **SharePoint Online**: Open the target SharePoint Document Library or subfolder in your browser, copy the address bar URL (including `Forms/AllItems.aspx?id=...` or a direct folder link), paste it into **Vault folder URL**, and click **Open vault**. The folder must contain an `.obsidian` directory.
      - **Microsoft Teams**: Open your Teams channel → **Files** tab → click **Open in SharePoint**, copy the browser URL, paste it into **Vault folder URL**, and click **Open vault**.
-   - **Create vault**: Choose **SharePoint or Teams library** (paste the parent library/channel URL and enter a new **Vault folder name**) or **My OneDrive for Business** (choose a parent folder in OneDrive and enter a **Vault folder name**), then click **Create and connect vault**.
+   - **Create vault**: Choose **SharePoint or Teams library** (paste the parent library/channel URL and enter a **Vault folder name**) or **My OneDrive for Business** (choose a parent folder in OneDrive and enter a **Vault folder name**), then click **Create and connect vault**. This creates the folder when needed or initializes an existing folder by adding `.obsidian`; existing remote and local files are merged by the normal conflict-safe sync process.
 
 ## Features
 
@@ -144,4 +144,3 @@ For deep technical details on the Microsoft Graph `/drives` mapping, `eTag` + `d
 ## License
 
 [MIT](./LICENSE)
-

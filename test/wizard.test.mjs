@@ -912,9 +912,15 @@ test("Wizard Combination 6: Enterprise × Discover Vaults (Followed SharePoint S
     const seededSite = mockGraph.seedSharePointSite({
       slug: "Engineering",
       displayName: "Engineering Hub",
-      folders: ["EngHandbook"],
+      folders: ["EngHandbook", "PlainFolder"],
     });
     const aliceGraph = new GraphVaultClient(async () => makeJwt(alice), () => baseUrl);
+    await aliceGraph.initializeVaultMarker({
+      name: "EngHandbook",
+      driveId: seededSite.driveId,
+      rootItemId: seededSite.createdFolders[0].id,
+      webUrl: "",
+    });
     await aliceGraph.uploadFileText(
       {
         name: "EngHandbook",
@@ -954,6 +960,11 @@ test("Wizard Combination 6: Enterprise × Discover Vaults (Followed SharePoint S
       findVaultRowButton(ctx.tab, "SecurityPlaybook"),
       "Enterprise Discover lists Shared with me vault"
     );
+    assert.equal(
+      findVaultRowButton(ctx.tab, "PlainFolder"),
+      null,
+      "Discover excludes folders without an .obsidian directory"
+    );
 
     await findVaultRowButton(ctx.tab, "EngHandbook").click();
     assert.equal(await ctx.vault.adapter.read("ADR-001.md"), "# ADR-001: Use PKCE everywhere");
@@ -984,7 +995,13 @@ test("Wizard Combination 7: Enterprise × Open Vault by URL (SharePoint Direct, 
     const engSite = mockGraph.seedSharePointSite({
       slug: "Engineering",
       displayName: "Engineering",
-      folders: ["PlatformVault"],
+      folders: ["PlatformVault", "PlainFolder"],
+    });
+    await graph.initializeVaultMarker({
+      name: "PlatformVault",
+      driveId: engSite.driveId,
+      rootItemId: engSite.createdFolders[0].id,
+      webUrl: "",
     });
     await graph.uploadFileText(
       {
@@ -995,12 +1012,36 @@ test("Wizard Combination 7: Enterprise × Open Vault by URL (SharePoint Direct, 
       "Spec.md",
       "SharePoint Spec v1"
     );
+    await graph.uploadFileText(
+      {
+        name: "PlatformVault",
+        driveId: engSite.driveId,
+        rootItemId: engSite.createdFolders[0].id,
+      },
+      "Legacy Modernization/Research.md",
+      "Existing nested note"
+    );
+    await graph.uploadFileText(
+      {
+        name: "PlainFolder",
+        driveId: engSite.driveId,
+        rootItemId: engSite.createdFolders[1].id,
+      },
+      "ExistingNotes.md",
+      "Existing SharePoint content"
+    );
 
     const secSite = mockGraph.seedSharePointSite({
       slug: "SecOps",
       displayName: "SecOps",
       hostname: "fallback.sharepoint.com",
       folders: ["IncidentVault"],
+    });
+    await graph.initializeVaultMarker({
+      name: "IncidentVault",
+      driveId: secSite.driveId,
+      rootItemId: secSite.createdFolders[0].id,
+      webUrl: "",
     });
     mockGraph.setForceShareFailureHost("fallback.sharepoint.com", true);
     await graph.uploadFileText(
@@ -1018,6 +1059,12 @@ test("Wizard Combination 7: Enterprise × Open Vault by URL (SharePoint Direct, 
       displayName: "Product Launch Team",
       kind: "teams",
       folders: ["General/LaunchVault"],
+    });
+    await graph.initializeVaultMarker({
+      name: "LaunchVault",
+      driveId: teamsSite.driveId,
+      rootItemId: teamsSite.createdFolders[0].id,
+      webUrl: "",
     });
     await graph.uploadFileText(
       {
@@ -1039,12 +1086,30 @@ test("Wizard Combination 7: Enterprise × Open Vault by URL (SharePoint Direct, 
     );
 
     // 7A: Direct SharePoint URL
+    const staleFolderPath = "Legacy Modernization";
+    await ctx.vault.createFolder(staleFolderPath);
+    const originalGetAbstractFile = ctx.vault.getAbstractFileByPath.bind(ctx.vault);
+    const originalCreateFolder = ctx.vault.createFolder.bind(ctx.vault);
+    ctx.vault.getAbstractFileByPath = (path) =>
+      path === staleFolderPath ? null : originalGetAbstractFile(path);
+    ctx.vault.createFolder = async (path) => {
+      if (path === staleFolderPath) {
+        throw new Error("Folder already exists.");
+      }
+      return originalCreateFolder(path);
+    };
     await findActionTab(ctx.tab, "Open vault by URL").click();
     await findSettingByName(ctx.tab, "Vault folder URL").texts[0].type(
       "https://contoso.sharepoint.com/sites/Engineering/Shared%20Documents/PlatformVault"
     );
     await findButton(ctx.tab, "Open vault").click();
     assert.equal(await ctx.vault.adapter.read("Spec.md"), "SharePoint Spec v1");
+    assert.equal(
+      await ctx.vault.adapter.read("Legacy Modernization/Research.md"),
+      "Existing nested note"
+    );
+    ctx.vault.getAbstractFileByPath = originalGetAbstractFile;
+    ctx.vault.createFolder = originalCreateFolder;
 
     // 7B: SharePoint Forms/AllItems.aspx?id=... URL
     await findButton(ctx.tab, "Switch vault...").click();
@@ -1072,6 +1137,34 @@ test("Wizard Combination 7: Enterprise × Open Vault by URL (SharePoint Direct, 
     );
     await findButton(ctx.tab, "Open vault").click();
     assert.equal(await ctx.vault.adapter.read("Checklist.md"), "Teams Channel Vault Synced");
+
+    // 7E: Open rejects a nonempty folder without .obsidian, while Create initializes it in place.
+    await findButton(ctx.tab, "Switch vault...").click();
+    await findActionTab(ctx.tab, "Open vault by URL").click();
+    await findSettingByName(ctx.tab, "Vault folder URL").texts[0].type(
+      "https://contoso.sharepoint.com/sites/Engineering/Shared%20Documents/PlainFolder"
+    );
+    await findButton(ctx.tab, "Open vault").click();
+    assert.ok(
+      notices.some((message) => message.includes("This is not an existing Obsidian vault")),
+      "Open vault reports a clear error when .obsidian is missing"
+    );
+    assert.equal(ctx.plugin.settings.activeVault.name, "LaunchVault (SharePoint: ProductLaunch)");
+
+    await findActionTab(ctx.tab, "Create vault").click();
+    await findSettingByName(ctx.tab, "Vault folder name").texts[0].type("PlainFolder");
+    await findSettingByName(
+      ctx.tab,
+      "Parent SharePoint or Teams library URL"
+    ).texts[0].type("https://contoso.sharepoint.com/sites/Engineering/Shared%20Documents");
+    await findButton(ctx.tab, "Create and connect vault").click();
+    assert.equal(ctx.plugin.settings.activeVault.name, "PlainFolder (SharePoint: Engineering)");
+    assert.equal(await ctx.vault.adapter.read("ExistingNotes.md"), "Existing SharePoint content");
+    assert.equal(
+      await graph.isObsidianVault(ctx.plugin.settings.activeVault),
+      true,
+      "Create vault initializes an existing folder by adding .obsidian"
+    );
   } finally {
     await mockGraph.stop();
   }

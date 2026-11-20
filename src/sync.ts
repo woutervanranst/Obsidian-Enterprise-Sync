@@ -1275,21 +1275,31 @@ export class CollaborativeSyncEngine {
     const adapter = this.getAdapter();
     for (const part of parts) {
       current = current ? `${current}/${part}` : part;
-      if (this.isConfigDirPath(current) && adapter) {
-        const exists =
-          typeof adapter.exists === "function"
-            ? await adapter.exists(current)
-            : false;
-        if (!exists && typeof adapter.mkdir === "function") {
-          await adapter.mkdir(current);
-        }
+      const existing = this.vault.getAbstractFileByPath(current);
+      if (existing instanceof TFolder) {
         continue;
       }
-      const existing = this.vault.getAbstractFileByPath(current);
-      if (!existing) {
+      if (existing) {
+        throw new Error(`Cannot create folder '${current}': a local file already exists there.`);
+      }
+      if (
+        adapter &&
+        typeof adapter.exists === "function" &&
+        await adapter.exists(current)
+      ) {
+        continue;
+      }
+      try {
         await this.vault.createFolder(current);
-      } else if (!(existing instanceof TFolder)) {
-        break;
+      } catch (err) {
+        if (
+          adapter &&
+          typeof adapter.exists === "function" &&
+          await adapter.exists(current)
+        ) {
+          continue;
+        }
+        throw err;
       }
     }
   }

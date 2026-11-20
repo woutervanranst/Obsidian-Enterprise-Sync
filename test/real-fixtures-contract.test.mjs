@@ -312,11 +312,28 @@ test("Consumer (OneDrive Personal) live Graph fixture contract: folder conflict 
       return makeResponse(ep["POST /v1.0/me/drive/root/children (create parent folder)"]);
     }
     if (method === "POST" && /\/me\/drive\/items\/[^/]+\/children$/.test(url)) {
-      postedBodies.push(JSON.parse(opts.body));
+      const postedBody = JSON.parse(opts.body);
+      postedBodies.push(postedBody);
+      if (postedBody.name === ".obsidian") {
+        return {
+          status: 201,
+          headers: {},
+          json: { id: "marker-folder", name: ".obsidian", folder: {} },
+          text: JSON.stringify({ id: "marker-folder", name: ".obsidian", folder: {} }),
+        };
+      }
       if (duplicateVaultMode) {
         return makeResponse(ep["POST /v1.0/me/drive/items/{parentId}/children (duplicate folder 409)"]);
       }
       return makeResponse(ep["POST /v1.0/me/drive/items/{parentId}/children (create vault)"]);
+    }
+    if (method === "GET" && url.endsWith(":/.obsidian")) {
+      return {
+        status: 200,
+        headers: {},
+        json: { id: "marker-folder", name: ".obsidian", folder: {} },
+        text: JSON.stringify({ id: "marker-folder", name: ".obsidian", folder: {} }),
+      };
     }
     if (method === "GET" && url.includes("/me/drive/root:/_ObsidianSyncFixtureProbe/TestVault")) {
       return {
@@ -334,6 +351,16 @@ test("Consumer (OneDrive Personal) live Graph fixture contract: folder conflict 
     }
     if (method === "GET" && url.endsWith("/me/drive/sharedWithMe")) {
       return makeResponse(ep["GET /v1.0/me/drive/sharedWithMe"]);
+    }
+    if (method === "POST" && /\/drives\/[^/]+\/items\/[^/]+\/children$/.test(url)) {
+      const postedBody = JSON.parse(opts.body);
+      assert.equal(postedBody.name, ".obsidian");
+      return {
+        status: 201,
+        headers: {},
+        json: { id: "marker-folder", name: ".obsidian", folder: {} },
+        text: JSON.stringify({ id: "marker-folder", name: ".obsidian", folder: {} }),
+      };
     }
     if (method === "GET" && url.includes("/shares/")) {
       return makeResponse(ep["GET /v1.0/shares/{u!token}/driveItem (TestVault URL)"]);
@@ -542,6 +569,14 @@ test("Enterprise (Entra ID / SharePoint / Teams) live Graph fixture contract: lo
         headers: { "content-type": "text/markdown" },
         text: content,
         arrayBuffer: u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength),
+      };
+    }
+    if (method === "GET" && url.endsWith(":/.obsidian")) {
+      return {
+        status: 200,
+        headers: {},
+        json: { id: "marker-folder", name: ".obsidian", folder: {} },
+        text: JSON.stringify({ id: "marker-folder", name: ".obsidian", folder: {} }),
       };
     }
     if (method === "GET" && url.endsWith("/permissions")) {
