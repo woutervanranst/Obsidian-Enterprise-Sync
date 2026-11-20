@@ -41,3 +41,294 @@
   user-select: text;
 }
 
+/* Setup wizard stepper */
+.entra-sync-stepper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 20px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  flex-wrap: wrap;
+}
+
+.entra-sync-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-faint);
+  font-weight: 500;
+}
+
+.entra-sync-step-num {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--background-modifier-border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.entra-sync-step.is-active {
+  color: var(--text-normal);
+  font-weight: 600;
+}
+
+.entra-sync-step.is-active .entra-sync-step-num {
+  background-color: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.entra-sync-step.is-done {
+  color: #107c41;
+  cursor: pointer;
+}
+
+.entra-sync-step.is-done .entra-sync-step-num {
+  background-color: rgba(16, 124, 65, 0.15);
+  border-color: rgba(16, 124, 65, 0.45);
+  color: #107c41;
+}
+
+.entra-sync-step-line {
+  width: 28px;
+  height: 1px;
+  background-color: var(--background-modifier-border);
+}
+
+/* Step 1 account type cards */
+.entra-sync-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin: 14px 0 18px;
+}
+
+.entra-sync-choice-card {
+  padding: 16px;
+  border-radius: 8px;
+  background-color: var(--background-secondary);
+  border: 1.5px solid var(--background-modifier-border);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.entra-sync-choice-card:hover {
+  background-color: var(--background-modifier-hover);
+}
+
+.entra-sync-choice-card.is-selected {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 1px var(--interactive-accent);
+}
+
+.entra-sync-choice-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-normal);
+}
+
+.entra-sync-choice-desc {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.entra-sync-choice-meta {
+  margin-top: auto;
+  padding-top: 6px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+.entra-sync-wizard-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+/* Collapsible helpers and troubleshooting */
+.entra-sync-details {
+  padding: 10px 14px;
+  border-radius: 8px;
+  background-color: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  margin: 12px 0;
+  font-size: 13px;
+}
+
+.entra-sync-details summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text-normal);
+  user-select: none;
+}
+
+.entra-sync-details-body {
+  margin-top: 10px;
+}
+
+/* Step 3 vault action tabs */
+.entra-sync-action-tabs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.entra-sync-action-tab {
+  padding: 12px;
+  border-radius: 8px;
+  background-color: var(--background-secondary);
+  border: 1.5px solid var(--background-modifier-border);
+  cursor: pointer;
+}
+
+.entra-sync-action-tab:hover {
+  background-color: var(--background-modifier-hover);
+}
+
+.entra-sync-action-tab.is-active {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 1px var(--interactive-accent);
+}
+
+.entra-sync-action-tab-title {
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--text-normal);
+  margin-bottom: 2px;
+}
+
+.entra-sync-action-tab-desc {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.entra-sync-panel {
+  padding: 14px 16px;
+  border-radius: 8px;
+  background-color: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  margin-top: 10px;
+}
+
+.entra-sync-vault-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.entra-sync-vault-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background-color: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+}
+
+.entra-sync-vault-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.entra-sync-vault-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-weight: 600;
+  font-size: 13.5px;
+}
+
+.entra-sync-source-badge {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 8px;
+  border-radius: 99px;
+  background-color: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-muted);
+}
+
+.entra-sync-vault-meta {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.entra-sync-inline-folder {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--background-modifier-border);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.entra-sync-target-pills {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 8px 0 12px;
+}
+
+.entra-sync-target-pill {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--background-modifier-border);
+  background-color: var(--background-primary);
+  color: var(--text-muted);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.entra-sync-target-pill.is-active {
+  border-color: var(--interactive-accent);
+  color: var(--text-normal);
+  font-weight: 600;
+}
+
+.entra-sync-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.entra-sync-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.entra-sync-muted {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin: 4px 0 0;
+}
+

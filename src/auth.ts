@@ -11,20 +11,15 @@ export interface AuthTokens {
 }
 
 export interface AuthConfig {
-  /** Use "common" for Consumer OneDrive + Multitenant Entra ID, or your Enterprise Tenant UUID */
+  /** Use "common" for Consumer OneDrive, or your Enterprise Directory (tenant) ID */
   tenantId: string;
   clientId: string;
-  /** Set true only when enterprise SharePoint sites discovery (/sites) is enabled */
+  /** Automatically true for Enterprise (SharePoint & Microsoft Teams), false for Consumer */
   includeSitesScope: boolean;
-}
-
-export interface DeviceCodeResponse {
-  device_code: string;
-  user_code: string;
-  verification_uri: string;
-  expires_in: number;
-  interval: number;
-  message: string;
+  /** Optional Microsoft Graph base URL (defaults to https://graph.microsoft.com/v1.0) */
+  graphBaseUrl?: string;
+  /** Optional OAuth authority base URL for sovereign clouds or tests (defaults to https://login.microsoftonline.com) */
+  authorityBaseUrl?: string;
 }
 
 interface OAuthTokenResponse {
@@ -70,6 +65,20 @@ export class EntraPkceAuth {
     private logger: SyncLogger = defaultLogger
   ) {}
 
+  private authorityBase(): string {
+    return (this.config.authorityBaseUrl || "https://login.microsoftonline.com").replace(
+      /\/+$/,
+      ""
+    );
+  }
+
+  private graphBase(): string {
+    return (this.config.graphBaseUrl || "https://graph.microsoft.com/v1.0").replace(
+      /\/+$/,
+      ""
+    );
+  }
+
   isSharePointEnabled(): boolean {
     const tenant = (this.config.tenantId || "common").trim().toLowerCase();
     return Boolean(
@@ -105,7 +114,8 @@ export class EntraPkceAuth {
       code_challenge_method: "S256",
     });
 
-    return `https://login.microsoftonline.com/${this.config.tenantId}/oauth2/v2.0/authorize?${params.toString()}`;
+    const tenant = (this.config.tenantId || "common").trim();
+    return `${this.authorityBase()}/${tenant}/oauth2/v2.0/authorize?${params.toString()}`;
   }
 
   async handleCallback(code: string): Promise<AuthTokens> {
@@ -122,7 +132,8 @@ export class EntraPkceAuth {
       scope: this.getScopes(),
     });
 
-    const tokenUrl = `https://login.microsoftonline.com/${this.config.tenantId}/oauth2/v2.0/token`;
+    const tenant = (this.config.tenantId || "common").trim();
+    const tokenUrl = `${this.authorityBase()}/${tenant}/oauth2/v2.0/token`;
     this.logger.info(`Exchanging PKCE authorization code at ${tokenUrl}`);
 
     const res = await requestUrl({
@@ -153,100 +164,10 @@ export class EntraPkceAuth {
     });
   }
 
-  /**
-   * OAuth2 Device Code Flow — ideal for enterprise desktops and containerized Obsidian instances.
-   */
-  async startDeviceCode(): Promise<DeviceCodeResponse> {
-    const body = new URLSearchParams({
-      client_id: this.config.clientId,
-      scope: this.getScopes(),
-    });
-
-    const res = await requestUrl({
-      url: `https://login.microsoftonline.com/${this.config.tenantId}/oauth2/v2.0/devicecode`,
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: body.toString(),
-    });
-
-    return res.json as DeviceCodeResponse;
-  }
-
-  async pollDeviceCode(deviceCode: string): Promise<AuthTokens | null> {
-    const body = new URLSearchParams({
-      client_id: this.config.clientId,
-      grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-      device_code: deviceCode,
-    });
-
-    const res = await requestUrl({
-      url: `https://login.microsoftonline.com/${this.config.tenantId}/oauth2/v2.0/token`,
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: body.toString(),
-      throw: false,
-    });
-
-    const tokenJson = res.json as OAuthTokenResponse | undefined;
-    if (res.status === 200 && tokenJson?.access_token) {
-      return this.enrichWithProfile({
-        accessToken: tokenJson.access_token,
-        refreshToken: tokenJson.refresh_token ?? "",
-        expiresAt: Date.now() + (tokenJson.expires_in ?? 3600) * 1000 - 60_000,
-      });
-    }
-
-    if (tokenJson?.error === "authorization_pending" || tokenJson?.error === "slow_down") {
-      return null;
-    }
-
-    throw new Error(tokenJson?.error_description || tokenJson?.error || "Device code login failed");
-  }
-
-  /**
-   * Direct Entra ID organizational account sign-in (OAuth2 ROPC flow).
-   * Note: Microsoft requires /organizations or /{tenantId} for direct password grant.
-   */
-  async signInWithCredentials(username: string, password: string): Promise<AuthTokens> {
-    const authorityTenant =
-      this.config.tenantId === "common" || this.config.tenantId === "consumers"
-        ? "organizations"
-        : this.config.tenantId;
-
-    const body = new URLSearchParams({
-      client_id: this.config.clientId,
-      grant_type: "password",
-      username: username.trim(),
-      password,
-      scope: this.getScopes(),
-    });
-
-    const res = await requestUrl({
-      url: `https://login.microsoftonline.com/${authorityTenant}/oauth2/v2.0/token`,
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: body.toString(),
-      throw: false,
-    });
-
-    const tokenJson = res.json as OAuthTokenResponse | undefined;
-    if (res.status !== 200 || !tokenJson?.access_token) {
-      throw new Error(
-        tokenJson?.error_description || tokenJson?.error || `Entra sign-in failed (${res.status})`
-      );
-    }
-
-    return this.enrichWithProfile({
-      accessToken: tokenJson.access_token,
-      refreshToken: tokenJson.refresh_token ?? "",
-      expiresAt: Date.now() + (tokenJson.expires_in ?? 3600) * 1000 - 60_000,
-    });
-  }
-
   async enrichWithProfile(tokens: AuthTokens): Promise<AuthTokens> {
     try {
       const meRes = await requestUrl({
-        url: "https://graph.microsoft.com/v1.0/me",
+        url: `${this.graphBase()}/me`,
         headers: { Authorization: `Bearer ${tokens.accessToken}` },
         throw: false,
       });
@@ -300,7 +221,7 @@ export class EntraPkceAuth {
 
     // Keep configured tenantId ("common" works for both Consumer OneDrive MSA & Entra ID refresh tokens!)
     const authorityTenant = (this.config.tenantId || "common").trim();
-    const tokenUrl = `https://login.microsoftonline.com/${authorityTenant}/oauth2/v2.0/token`;
+    const tokenUrl = `${this.authorityBase()}/${authorityTenant}/oauth2/v2.0/token`;
     this.logger.info(`Refreshing OAuth2 access token via ${tokenUrl}`, { force });
 
     const body = new URLSearchParams({

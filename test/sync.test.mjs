@@ -182,6 +182,7 @@ const obsidianMock = {
       this.plugin = plugin;
       const makeEl = () => ({
         children: [],
+        listeners: {},
         empty() {
           this.children = [];
         },
@@ -200,6 +201,10 @@ const obsidianMock = {
         },
         setText(t) {
           this.text = t;
+        },
+        addEventListener(type, fn) {
+          this.listeners[type] = this.listeners[type] || [];
+          this.listeners[type].push(fn);
         },
       });
       this.containerEl = makeEl();
@@ -399,83 +404,59 @@ test("End-to-end Microsoft Entra ID Auth + SharePoint/OneDrive Graph Vault Shari
       undefined,
       "EntraSyncSettingTab.prototype.getSettingDefinitions must be undefined so Obsidian 1.13+ calls display()"
     );
+    const collectSettings = (el) => {
+      const found = [];
+      for (const child of el.children || []) {
+        if (child instanceof obsidianMock.Setting) {
+          found.push(child);
+        } else if (child && Array.isArray(child.children)) {
+          found.push(...collectSettings(child));
+        }
+      }
+      return found;
+    };
+
     settingTab.display();
-    const renderedSettings = settingTab.containerEl.children.filter(
-      (c) => c instanceof obsidianMock.Setting
-    );
-    const textInputSettings = renderedSettings.filter((s) => s.texts.length > 0);
-    assert.ok(
-      textInputSettings.length >= 4,
-      "display() must render text inputs for Tenant ID, Client ID, OneDrive folder, and Graph URL"
-    );
-    const buttonTexts = renderedSettings.flatMap((s) =>
+    const step1Settings = collectSettings(settingTab.containerEl);
+    const step1Buttons = step1Settings.flatMap((s) =>
       s.buttons.map((b) => b.buttonText)
     );
     assert.ok(
-      buttonTexts.includes("Sign in (browser PKCE)"),
-      "display() must render 'Sign in (browser PKCE)' button"
+      step1Buttons.includes("Continue"),
+      "Wizard Step 1 must render 'Continue' button"
     );
     assert.ok(
-      buttonTexts.includes("Refresh logs"),
+      step1Buttons.includes("Refresh logs"),
       "display() must render troubleshooting log viewer action buttons"
     );
 
-    const clientId = process.env.ENTRA_CLIENT_ID || "ada87c12-a404-484b-a7dc-10c54beb2d7d";
-    const pass = process.env.ENTRA_TEST_PASSWORD;
-
-    let aliceTokens;
-    let bobTokens;
-    if (pass) {
-      // 1. Authenticate both real Entra ID users (Alice & Bob) against live Microsoft Entra ID
-      const aliceAuth = new EntraPkceAuth({
-        tenantId: "common",
-        clientId,
-        includeSitesScope: false,
-      });
-      const bobAuth = new EntraPkceAuth({
-        tenantId: "common",
-        clientId,
-        includeSitesScope: false,
-      });
-
-      aliceTokens = await aliceAuth.signInWithCredentials(
-        "alice@woutervanranstgmail.onmicrosoft.com",
-        pass
-      );
-      bobTokens = await bobAuth.signInWithCredentials(
-        "bob@woutervanranstgmail.onmicrosoft.com",
-        pass
-      );
-    } else {
-      // Fallback unsigned test JWTs when running in CI without ENTRA_TEST_PASSWORD
-      const makeJwt = (oid, name, upn) => {
-        const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url");
-        const payload = Buffer.from(JSON.stringify({ oid, name, upn })).toString("base64url");
-        return `${header}.${payload}.`;
-      };
-      aliceTokens = {
-        accessToken: makeJwt(
-          "63a6c51d-b9c7-43cf-8ba0-ce82bb6eb2e6",
-          "Alice Peeters",
-          "alice@woutervanranstgmail.onmicrosoft.com"
-        ),
-        refreshToken: "refresh-alice",
-        expiresAt: Date.now() + 3600_000,
-        userDisplayName: "Alice Peeters",
-        userEmail: "alice@woutervanranstgmail.onmicrosoft.com",
-      };
-      bobTokens = {
-        accessToken: makeJwt(
-          "3be7d8b4-7e90-4da0-9499-619b3da4e2cf",
-          "Bob Janssens",
-          "bob@woutervanranstgmail.onmicrosoft.com"
-        ),
-        refreshToken: "refresh-bob",
-        expiresAt: Date.now() + 3600_000,
-        userDisplayName: "Bob Janssens",
-        userEmail: "bob@woutervanranstgmail.onmicrosoft.com",
-      };
-    }
+    const makeJwt = (oid, name, upn) => {
+      const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url");
+      const payload = Buffer.from(JSON.stringify({ oid, name, upn })).toString("base64url");
+      return `${header}.${payload}.`;
+    };
+    const aliceTokens = {
+      accessToken: makeJwt(
+        "63a6c51d-b9c7-43cf-8ba0-ce82bb6eb2e6",
+        "Alice Peeters",
+        "alice@woutervanranstgmail.onmicrosoft.com"
+      ),
+      refreshToken: "refresh-alice",
+      expiresAt: Date.now() + 3600_000,
+      userDisplayName: "Alice Peeters",
+      userEmail: "alice@woutervanranstgmail.onmicrosoft.com",
+    };
+    const bobTokens = {
+      accessToken: makeJwt(
+        "3be7d8b4-7e90-4da0-9499-619b3da4e2cf",
+        "Bob Janssens",
+        "bob@woutervanranstgmail.onmicrosoft.com"
+      ),
+      refreshToken: "refresh-bob",
+      expiresAt: Date.now() + 3600_000,
+      userDisplayName: "Bob Janssens",
+      userEmail: "bob@woutervanranstgmail.onmicrosoft.com",
+    };
 
     assert.equal(aliceTokens.userDisplayName, "Alice Peeters");
     assert.equal(aliceTokens.userEmail, "alice@woutervanranstgmail.onmicrosoft.com");

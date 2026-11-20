@@ -6,10 +6,34 @@ import { VersionHistoryModal } from "./historyModal";
 import { ShareVaultModal } from "./shareModal";
 import { SyncLogger, defaultLogger } from "./logger";
 
+export type AccountEdition = "consumer" | "enterprise";
+
+export const DEFAULT_CONSUMER_CLIENT_ID = "ada87c12-a404-484b-a7dc-10c54beb2d7d";
+export const DEFAULT_GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0";
+
+const ADMIN_REQUEST_TEMPLATE = [
+  "Subject: Request for Microsoft Entra ID App Registration — Obsidian SharePoint & OneDrive Sync",
+  "",
+  "Hi,",
+  "",
+  "Could you create a Microsoft Entra ID App Registration so we can collaborate on Obsidian vaults stored in SharePoint Online, Microsoft Teams, and OneDrive?",
+  "",
+  "1. Name: Obsidian SharePoint Sync",
+  "2. Supported account types: Accounts in this organizational directory only (Single tenant) (or Multitenant if guests need access)",
+  "3. Authentication -> Platform: Mobile and desktop applications -> Custom Redirect URI: obsidian://entra-sync-auth",
+  "4. API permissions (Microsoft Graph — Delegated): User.Read, Files.ReadWrite.All, Sites.ReadWrite.All, offline_access (with admin consent)",
+  "",
+  "Once created, please share back:",
+  "- Directory (tenant) ID",
+  "- Application (client) ID",
+].join("\n");
+
 export interface EntraSyncSettings {
+  edition: AccountEdition;
   tenantId: string;
   clientId: string;
   graphBaseUrl: string;
+  authorityBaseUrl?: string;
   oneDriveVaultsFolder: string;
   includeSitesScope: boolean;
   syncObsidianConfig: boolean;
@@ -20,9 +44,10 @@ export interface EntraSyncSettings {
 }
 
 const DEFAULT_SETTINGS: EntraSyncSettings = {
-  tenantId: "common", // Works for Consumer OneDrive + Multitenant Entra ID
-  clientId: "ada87c12-a404-484b-a7dc-10c54beb2d7d",
-  graphBaseUrl: "https://graph.microsoft.com/v1.0",
+  edition: "consumer",
+  tenantId: "",
+  clientId: "",
+  graphBaseUrl: DEFAULT_GRAPH_BASE_URL,
   oneDriveVaultsFolder: "ObsidianVaults",
   includeSitesScope: false,
   syncObsidianConfig: true,
@@ -30,13 +55,20 @@ const DEFAULT_SETTINGS: EntraSyncSettings = {
   syncStore: { files: {} },
 };
 
+function openExternalUrl(url: string): void {
+  if (typeof window !== "undefined" && typeof window.open === "function") {
+    window.open(url);
+  }
+}
+
 export default class EntraSharePointSyncPlugin extends Plugin {
-  settings: EntraSyncSettings = DEFAULT_SETTINGS;
+  settings: EntraSyncSettings = { ...DEFAULT_SETTINGS, syncStore: { files: {} } };
   logger: SyncLogger = defaultLogger;
   auth!: EntraPkceAuth;
   graph!: GraphVaultClient;
   syncEngine?: CollaborativeSyncEngine;
   statusBarEl?: HTMLElement;
+  settingTab?: EntraSyncSettingTab;
   private syncTimerId: number | null = null;
   private modifyTimeoutId: number | null = null;
 
@@ -58,11 +90,12 @@ export default class EntraSharePointSyncPlugin extends Plugin {
           this.settings.tokens = await this.auth.handleCallback(params.code);
           await this.saveSettings();
           this.reinitClients();
+          this.settingTab?.onAuthCompleted();
           new Notice(
             `Signed in with Microsoft as ${
               this.settings.tokens.userDisplayName ||
               this.settings.tokens.userEmail ||
-              "Enterprise User"
+              "Microsoft user"
             }!`
           );
         } catch (e) {
@@ -218,7 +251,8 @@ export default class EntraSharePointSyncPlugin extends Plugin {
       },
     });
 
-    this.addSettingTab(new EntraSyncSettingTab(this.app, this));
+    this.settingTab = new EntraSyncSettingTab(this.app, this);
+    this.addSettingTab(this.settingTab);
 
     // Perform an initial sync on startup if already signed in and connected to a vault
     if (this.settings.tokens && this.settings.activeVault) {
@@ -308,11 +342,26 @@ export default class EntraSharePointSyncPlugin extends Plugin {
   }
 
   reinitClients() {
+    const isEnterprise = this.settings.edition === "enterprise";
+    const effectiveTenantId = isEnterprise
+      ? this.settings.tenantId.trim()
+      : "common";
+    const effectiveClientId = isEnterprise
+      ? this.settings.clientId.trim()
+      : DEFAULT_CONSUMER_CLIENT_ID;
+    const effectiveIncludeSites = isEnterprise;
+    this.settings.includeSitesScope = effectiveIncludeSites;
+
+    const graphBaseUrl =
+      this.settings.graphBaseUrl || DEFAULT_GRAPH_BASE_URL;
+
     this.auth = new EntraPkceAuth(
       {
-        tenantId: this.settings.tenantId,
-        clientId: this.settings.clientId,
-        includeSitesScope: this.settings.includeSitesScope,
+        tenantId: effectiveTenantId,
+        clientId: effectiveClientId,
+        includeSitesScope: effectiveIncludeSites,
+        graphBaseUrl,
+        authorityBaseUrl: this.settings.authorityBaseUrl,
       },
       this.logger
     );
@@ -327,7 +376,7 @@ export default class EntraSharePointSyncPlugin extends Plugin {
         await this.saveSettings();
         return this.settings.tokens.accessToken;
       },
-      () => this.settings.graphBaseUrl || "https://graph.microsoft.com/v1.0",
+      () => this.settings.graphBaseUrl || DEFAULT_GRAPH_BASE_URL,
       this.logger
     );
 
@@ -368,7 +417,42 @@ export default class EntraSharePointSyncPlugin extends Plugin {
 
   async loadSettings() {
     const loaded = (await this.loadData()) as Partial<EntraSyncSettings> | null;
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
+    this.settings = Object.assign(
+      {},
+      DEFAULT_SETTINGS,
+      { syncStore: { files: {} } },
+      loaded
+    );
+
+    // Migrate legacy pre-wizard data.json configurations smoothly
+    if (!loaded?.edition) {
+      const rawTenant = (loaded?.tenantId || "").trim();
+      const rawClient = (loaded?.clientId || "").trim();
+      const hasCustomTenant =
+        Boolean(rawTenant) &&
+        rawTenant.toLowerCase() !== "common" &&
+        rawTenant.toLowerCase() !== "consumers";
+      const hasCustomClient =
+        Boolean(rawClient) && rawClient !== DEFAULT_CONSUMER_CLIENT_ID;
+
+      if (hasCustomTenant || hasCustomClient || loaded?.includeSitesScope) {
+        this.settings.edition = "enterprise";
+        this.settings.tenantId = rawTenant;
+        this.settings.clientId = rawClient;
+      } else {
+        this.settings.edition = "consumer";
+        this.settings.tenantId = "";
+        this.settings.clientId = "";
+      }
+    }
+
+    this.settings.includeSitesScope = this.settings.edition === "enterprise";
+    if (!this.settings.graphBaseUrl) {
+      this.settings.graphBaseUrl = DEFAULT_GRAPH_BASE_URL;
+    }
+    if (!this.settings.oneDriveVaultsFolder) {
+      this.settings.oneDriveVaultsFolder = "ObsidianVaults";
+    }
     if (!this.settings.syncStore || !this.settings.syncStore.files) {
       this.settings.syncStore = { files: {} };
     }
@@ -379,405 +463,848 @@ export default class EntraSharePointSyncPlugin extends Plugin {
   }
 }
 
-class EntraCredentialsModal extends Modal {
-  private username = "";
-  private password = "";
-
-  constructor(
-    app: App,
-    private plugin: EntraSharePointSyncPlugin,
-    private onSignedIn: () => void
-  ) {
-    super(app);
-  }
-
-  onOpen() {
-    const { contentEl } = this;
-    contentEl.empty();
-    contentEl.createEl("h2", { text: "Sign in with Microsoft Entra ID" });
-    contentEl.createEl("p", {
-      text: "Authenticate with your Microsoft Entra ID account to activate collaborative vault sync.",
-    });
-
-    new Setting(contentEl).setName("Work or school account (UPN)").addText((text) =>
-      text
-        .setPlaceholder("user@yourdomain.onmicrosoft.com")
-        .onChange((val) => {
-          this.username = val;
-        })
-    );
-
-    new Setting(contentEl).setName("Password").addText((text) => {
-      text.inputEl.type = "password";
-      text.setPlaceholder("••••••••").onChange((val) => {
-        this.password = val;
-      });
-    });
-
-    new Setting(contentEl).addButton((btn) =>
-      btn
-        .setButtonText("Sign in")
-        .setCta()
-        .onClick(async () => {
-          try {
-            const tokens = await this.plugin.auth.signInWithCredentials(
-              this.username,
-              this.password
-            );
-            this.plugin.settings.tokens = tokens;
-            await this.plugin.saveSettings();
-            this.plugin.reinitClients();
-            new Notice(
-              `Signed in as ${tokens.userDisplayName || tokens.userEmail}!`
-            );
-            this.onSignedIn();
-            this.close();
-          } catch (err) {
-            new Notice(`Sign-in failed: ${String(err)}`);
-          }
-        })
-    );
-  }
-}
+type WizardVaultMode = "discover" | "url" | "create";
+type CreateVaultTarget = "sharepoint" | "onedrive";
 
 class EntraSyncSettingTab extends PluginSettingTab {
+  private wizardStep: 1 | 2 | 3 = 1;
+  private switchingVault = false;
+  private vaultMode: WizardVaultMode = "discover";
+  private createTarget: CreateVaultTarget = "sharepoint";
+  private createParentUrl = "";
   private availableVaults: RemoteVaultTarget[] = [];
+  private discoverLoading = false;
+  private discoveredKey = "";
+  private editingOneDriveFolder = false;
+  private pendingOneDriveFolder = "";
   private newVaultName = "";
-  private sharePointVaultUrl = "";
+  private vaultUrlInput = "";
 
   constructor(app: App, private plugin: EntraSharePointSyncPlugin) {
     super(app, plugin);
+    this.createTarget =
+      this.plugin.settings.edition === "enterprise" ? "sharepoint" : "onedrive";
+  }
+
+  onAuthCompleted(): void {
+    this.wizardStep = 3;
+    this.discoveredKey = "";
+    this.createTarget =
+      this.plugin.settings.edition === "enterprise" ? "sharepoint" : "onedrive";
+    this.display();
+  }
+
+  private async connectToVault(target: RemoteVaultTarget): Promise<void> {
+    this.plugin.settings.activeVault = target;
+    this.plugin.settings.syncStore = { files: {} };
+    this.switchingVault = false;
+    await this.plugin.saveSettings();
+    this.plugin.reinitClients();
+    await this.plugin.triggerManualSync();
+    new Notice(`Connected to vault: ${target.name}`);
+    this.display();
+  }
+
+  private async refreshDiscoveredVaults(showNotice = false): Promise<void> {
+    if (!this.plugin.settings.tokens || this.discoverLoading) {
+      return;
+    }
+    this.discoverLoading = true;
+    const currentKey = `${this.plugin.settings.edition}:${
+      this.plugin.settings.tokens.userId ||
+      this.plugin.settings.tokens.userEmail ||
+      "signed-in"
+    }:${this.plugin.settings.oneDriveVaultsFolder}`;
+
+    try {
+      this.availableVaults = await this.plugin.graph.listAvailableVaults(
+        this.plugin.auth.isSharePointEnabled(),
+        this.plugin.settings.oneDriveVaultsFolder
+      );
+      this.discoveredKey = currentKey;
+      if (showNotice) {
+        new Notice(`Found ${this.availableVaults.length} vault(s).`);
+      }
+    } catch (err) {
+      this.discoveredKey = currentKey;
+      new Notice(`Failed to list vaults: ${String(err)}`);
+    } finally {
+      this.discoverLoading = false;
+      this.display();
+    }
   }
 
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
 
-    // Enterprise Account Status Card
-    const card = containerEl.createDiv({ cls: "entra-sync-card" });
-    if (this.plugin.settings.tokens) {
-      const user =
-        this.plugin.settings.tokens.userDisplayName ||
-        this.plugin.settings.tokens.userEmail ||
-        "Authenticated user";
-      const email = this.plugin.settings.tokens.userEmail || "";
-      card.createDiv({
-        cls: "entra-sync-badge",
-        text: "✓ Collaborative vault sync active (Microsoft Entra ID verified)",
-      });
-      card.createEl("p", {
-        text: `Signed in as: ${user}${email && email !== user ? ` (${email})` : ""}`,
-      });
-    } else {
-      card.createEl("p", {
-        text: "Sign in with your Microsoft Entra ID or OneDrive account to unlock multi-user shared vaults, 3-way conflict merging, and version history.",
-      });
+    const isSignedIn = Boolean(this.plugin.settings.tokens);
+    const hasActiveVault = Boolean(this.plugin.settings.activeVault);
+
+    if (isSignedIn && hasActiveVault && !this.switchingVault) {
+      this.renderConnectedView(containerEl);
+      this.renderTroubleshootingSection(containerEl);
+      return;
     }
 
+    if (isSignedIn) {
+      this.wizardStep = 3;
+    } else if (this.wizardStep === 3) {
+      this.wizardStep = 1;
+    }
+
+    this.renderStepper(containerEl);
+
+    if (this.wizardStep === 1) {
+      this.renderStep1Edition(containerEl);
+    } else if (this.wizardStep === 2) {
+      this.renderStep2SignIn(containerEl);
+    } else {
+      this.renderStep3ConnectVault(containerEl);
+    }
+
+    this.renderTroubleshootingSection(containerEl);
+  }
+
+  private renderStepper(containerEl: HTMLElement): void {
+    const stepper = containerEl.createDiv({ cls: "entra-sync-stepper" });
+    const steps: Array<{ num: 1 | 2 | 3; label: string }> = [
+      { num: 1, label: "Account type" },
+      { num: 2, label: "Sign in" },
+      { num: 3, label: "Connect vault" },
+    ];
+
+    steps.forEach((step, idx) => {
+      const isDone = this.wizardStep > step.num;
+      const isActive = this.wizardStep === step.num;
+      const stepEl = stepper.createDiv({
+        cls: `entra-sync-step${isActive ? " is-active" : ""}${
+          isDone ? " is-done" : ""
+        }`,
+      });
+      stepEl.createEl("span", {
+        cls: "entra-sync-step-num",
+        text: isDone ? "✓" : String(step.num),
+      });
+      stepEl.createEl("span", { text: step.label });
+
+      if (isDone && !this.plugin.settings.tokens) {
+        stepEl.addEventListener("click", () => {
+          this.wizardStep = step.num;
+          this.display();
+        });
+      }
+
+      if (idx < steps.length - 1) {
+        stepper.createDiv({ cls: "entra-sync-step-line" });
+      }
+    });
+  }
+
+  private renderStep1Edition(containerEl: HTMLElement): void {
     new Setting(containerEl)
-      .setName("Tenant ID")
+      .setName("Choose your Microsoft account type")
       .setDesc(
-        'Use "common" for personal OneDrive and multitenant sign-in, or enter your enterprise tenant UUID.'
+        "Select Consumer for personal OneDrive accounts, or Enterprise for corporate SharePoint Online, Microsoft Teams, and OneDrive for Business."
       )
-      .addText((text) =>
-        text.setValue(this.plugin.settings.tenantId).onChange(async (val) => {
-          this.plugin.settings.tenantId = val.trim() || "common";
-          await this.plugin.saveSettings();
-          this.plugin.reinitClients();
-        })
-      );
+      .setHeading();
 
-    new Setting(containerEl)
-      .setName("Entra app client ID")
-      .setDesc("Application (client) ID from Microsoft Entra app registrations.")
-      .addText((text) =>
-        text.setValue(this.plugin.settings.clientId).onChange(async (val) => {
-          this.plugin.settings.clientId = val.trim();
-          await this.plugin.saveSettings();
-          this.plugin.reinitClients();
-        })
-      );
+    const grid = containerEl.createDiv({ cls: "entra-sync-choice-grid" });
 
-    new Setting(containerEl)
-      .setName("OneDrive vaults folder path")
-      .setDesc(
-        "Parent folder in OneDrive (e.g. ObsidianVaults or Documents/Documents)"
-      )
-      .addText((text) =>
-        text
-          .setValue(this.plugin.settings.oneDriveVaultsFolder)
-          .onChange(async (val) => {
-            this.plugin.settings.oneDriveVaultsFolder =
-              val.trim() || "ObsidianVaults";
-            await this.plugin.saveSettings();
-          })
-      );
+    const selectEdition = async (edition: AccountEdition) => {
+      this.plugin.settings.edition = edition;
+      this.plugin.settings.includeSitesScope = edition === "enterprise";
+      this.createTarget = edition === "enterprise" ? "sharepoint" : "onedrive";
+      await this.plugin.saveSettings();
+      this.plugin.reinitClients();
+      this.display();
+    };
 
-    new Setting(containerEl)
-      .setName("Enable SharePoint and Microsoft Teams sites")
-      .setDesc(
-        "Request Sites.ReadWrite.All scope to connect SharePoint document libraries and Microsoft Teams channels (automatically enabled for enterprise tenant IDs)."
-      )
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.auth.isSharePointEnabled())
-          .onChange(async (val) => {
-            this.plugin.settings.includeSitesScope = val;
-            await this.plugin.saveSettings();
-            this.plugin.reinitClients();
-          })
-      );
+    const consumerCard = grid.createDiv({
+      cls: `entra-sync-choice-card${
+        this.plugin.settings.edition === "consumer" ? " is-selected" : ""
+      }`,
+    });
+    consumerCard.createDiv({
+      cls: "entra-sync-choice-title",
+      text: "Consumer (OneDrive)",
+    });
+    consumerCard.createDiv({
+      cls: "entra-sync-choice-desc",
+      text: "Use a personal Microsoft account (outlook.com, live.com, hotmail.com) to sync personal or shared OneDrive folders.",
+    });
+    consumerCard.createDiv({
+      cls: "entra-sync-choice-meta",
+      text: "No admin setup required",
+    });
+    consumerCard.addEventListener("click", () => {
+      void selectEdition("consumer");
+    });
 
-    new Setting(containerEl)
-      .setName("Microsoft Graph base URL")
-      .setDesc("Default: https://graph.microsoft.com/v1.0")
-      .addText((text) =>
-        text.setValue(this.plugin.settings.graphBaseUrl).onChange(async (val) => {
-          this.plugin.settings.graphBaseUrl =
-            val.trim() || "https://graph.microsoft.com/v1.0";
-          await this.plugin.saveSettings();
-          this.plugin.reinitClients();
-        })
-      );
+    const enterpriseCard = grid.createDiv({
+      cls: `entra-sync-choice-card${
+        this.plugin.settings.edition === "enterprise" ? " is-selected" : ""
+      }`,
+    });
+    enterpriseCard.createDiv({
+      cls: "entra-sync-choice-title",
+      text: "Enterprise (Teams & SharePoint)",
+    });
+    enterpriseCard.createDiv({
+      cls: "entra-sync-choice-desc",
+      text: "Use your corporate Microsoft Entra ID account to collaborate in SharePoint Online, Microsoft Teams channels, and OneDrive for Business.",
+    });
+    enterpriseCard.createDiv({
+      cls: "entra-sync-choice-meta",
+      text: "Requires your organization's Entra app registration IDs",
+    });
+    enterpriseCard.addEventListener("click", () => {
+      void selectEdition("enterprise");
+    });
 
-    const authSetting = new Setting(containerEl)
-      .setName("Microsoft / Entra ID account")
-      .setDesc(
-        this.plugin.settings.tokens
-          ? `Connected as ${
-              this.plugin.settings.tokens.userEmail ||
-              this.plugin.settings.tokens.userDisplayName
-            }`
-          : "Not signed in"
-      );
-
-    authSetting.addButton((btn) =>
-      btn.setButtonText("Sign in (browser PKCE)").onClick(async () => {
-        const url = await this.plugin.auth.startLogin();
-        window.open(url);
-      })
-    );
-
-    authSetting.addButton((btn) =>
+    const nav = containerEl.createDiv({ cls: "entra-sync-wizard-nav" });
+    nav.createDiv();
+    new Setting(nav).addButton((btn) =>
       btn
-        .setButtonText("Sign in (Entra credentials)")
+        .setButtonText("Continue")
         .setCta()
         .onClick(() => {
-          new EntraCredentialsModal(this.app, this.plugin, () => {
-            this.display();
-          }).open();
+          this.wizardStep = 2;
+          this.display();
         })
     );
+  }
 
-    if (this.plugin.settings.tokens) {
-      authSetting.addButton((btn) =>
-        btn
-          .setButtonText("Sign out")
-          .onClick(async () => {
-            this.plugin.settings.tokens = undefined;
-            this.plugin.settings.activeVault = undefined;
-            this.plugin.settings.syncStore = { files: {} };
-            await this.plugin.saveSettings();
-            this.plugin.reinitClients();
-            this.display();
-          })
-      );
-
+  private renderStep2SignIn(containerEl: HTMLElement): void {
+    if (this.plugin.settings.edition === "consumer") {
       new Setting(containerEl)
-        .setName("Shared vault and collaboration")
+        .setName("Sign in with your personal Microsoft account")
+        .setDesc(
+          "Opens your browser using OAuth 2.0 PKCE and returns to Obsidian automatically. No credentials are entered inside Obsidian."
+        )
         .setHeading();
 
       new Setting(containerEl)
-        .setName("Active remote vault")
+        .setName("Personal Microsoft OneDrive")
         .setDesc(
-          this.plugin.settings.activeVault
-            ? `${this.plugin.settings.activeVault.name} (Drive: ${this.plugin.settings.activeVault.driveId})`
-            : "No remote vault connected yet"
-        )
-        .addButton((btn) =>
-          btn.setButtonText("Discover vaults").onClick(async () => {
-            try {
-              this.availableVaults =
-                await this.plugin.graph.listAvailableVaults(
-                  this.plugin.auth.isSharePointEnabled(),
-                  this.plugin.settings.oneDriveVaultsFolder
-                );
-              new Notice(`Found ${this.availableVaults.length} vault(s).`);
-              this.display();
-            } catch (err) {
-              new Notice(`Failed to list vaults: ${String(err)}`);
-            }
-          })
+          "Requests User.Read, Files.ReadWrite.All, and offline_access permissions."
         )
         .addButton((btn) =>
           btn
-            .setButtonText("Sync now")
+            .setButtonText("Sign in with browser")
             .setCta()
             .onClick(async () => {
-              await this.plugin.triggerManualSync();
+              this.plugin.reinitClients();
+              const url = await this.plugin.auth.startLogin();
+              openExternalUrl(url);
             })
         );
 
-      if (this.availableVaults.length > 0) {
-        new Setting(containerEl)
-          .setName("Select discovered vault")
-          .setDesc("Choose a personal OneDrive folder, shared folder, or SharePoint library")
-          .addDropdown((drop) => {
-            drop.addOption("", "-- Select a vault --");
-            for (const v of this.availableVaults) {
-              drop.addOption(`${v.driveId}:::${v.rootItemId}`, v.name);
-            }
-            if (this.plugin.settings.activeVault) {
-              drop.setValue(
-                `${this.plugin.settings.activeVault.driveId}:::${this.plugin.settings.activeVault.rootItemId}`
-              );
-            }
-            drop.onChange(async (val) => {
-              const found = this.availableVaults.find(
-                (v) => `${v.driveId}:::${v.rootItemId}` === val
-              );
-              if (found) {
-                this.plugin.settings.activeVault = found;
-                this.plugin.settings.syncStore = { files: {} };
-                await this.plugin.saveSettings();
-                this.plugin.reinitClients();
-                await this.plugin.triggerManualSync();
-                this.display();
-              }
-            });
-          });
-      }
+      const nav = containerEl.createDiv({ cls: "entra-sync-wizard-nav" });
+      new Setting(nav).addButton((btn) =>
+        btn.setButtonText("Back").onClick(() => {
+          this.wizardStep = 1;
+          this.display();
+        })
+      );
+      return;
+    }
 
-      new Setting(containerEl)
-        .setName("Connect SharePoint, Microsoft Teams, or OneDrive URL")
+    // Enterprise Step 2
+    new Setting(containerEl)
+      .setName("Configure Microsoft Entra ID app registration")
+      .setDesc(
+        "SharePoint Online and Microsoft Teams sites (Sites.ReadWrite.All) are automatically enabled for Enterprise accounts."
+      )
+      .setHeading();
+
+    const detailsEl = containerEl.createEl("details", {
+      cls: "entra-sync-details",
+    });
+    detailsEl.createEl("summary", {
+      text: "Need these IDs? View one-time IT admin setup request",
+    });
+    const detailsBody = detailsEl.createDiv({ cls: "entra-sync-details-body" });
+    detailsBody.createEl("pre", {
+      cls: "entra-sync-version-preview",
+      text: ADMIN_REQUEST_TEMPLATE,
+    });
+    new Setting(detailsBody).addButton((btn) =>
+      btn.setButtonText("Copy admin request").onClick(async () => {
+        await navigator.clipboard.writeText(ADMIN_REQUEST_TEMPLATE);
+        new Notice("Copied IT admin setup request to clipboard.");
+      })
+    );
+
+    new Setting(containerEl)
+      .setName("Directory (tenant) ID")
+      .setDesc(
+        "Your organization's Microsoft Entra ID tenant UUID or domain (for example contoso.onmicrosoft.com)."
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder("00000000-0000-0000-0000-000000000000")
+          .setValue(this.plugin.settings.tenantId)
+          .onChange(async (val) => {
+            this.plugin.settings.tenantId = val.trim();
+            await this.plugin.saveSettings();
+            this.plugin.reinitClients();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Application (client) ID")
+      .setDesc(
+        "Application (client) ID from your organization's Microsoft Entra app registration."
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder("00000000-0000-0000-0000-000000000000")
+          .setValue(this.plugin.settings.clientId)
+          .onChange(async (val) => {
+            this.plugin.settings.clientId = val.trim();
+            await this.plugin.saveSettings();
+            this.plugin.reinitClients();
+          })
+      );
+
+    const nav = containerEl.createDiv({ cls: "entra-sync-wizard-nav" });
+    new Setting(nav)
+      .addButton((btn) =>
+        btn.setButtonText("Back").onClick(() => {
+          this.wizardStep = 1;
+          this.display();
+        })
+      )
+      .addButton((btn) =>
+        btn
+          .setButtonText("Sign in with browser")
+          .setCta()
+          .onClick(async () => {
+            if (
+              !this.plugin.settings.tenantId.trim() ||
+              !this.plugin.settings.clientId.trim()
+            ) {
+              new Notice(
+                "Enter both Directory (tenant) ID and Application (client) ID first."
+              );
+              return;
+            }
+            this.plugin.reinitClients();
+            const url = await this.plugin.auth.startLogin();
+            openExternalUrl(url);
+          })
+      );
+  }
+
+  private renderStep3ConnectVault(containerEl: HTMLElement): void {
+    const tokens = this.plugin.settings.tokens;
+    const isEnterprise = this.plugin.settings.edition === "enterprise";
+    const userDisplay =
+      tokens?.userDisplayName || tokens?.userEmail || "Authenticated user";
+    const userEmail = tokens?.userEmail || "";
+
+    const accountCard = containerEl.createDiv({ cls: "entra-sync-card" });
+    const header = accountCard.createDiv({ cls: "entra-sync-card-header" });
+    const info = header.createDiv();
+    info.createDiv({
+      cls: "entra-sync-badge",
+      text: `✓ Signed in as ${userDisplay}${
+        userEmail && userEmail !== userDisplay ? ` (${userEmail})` : ""
+      }`,
+    });
+    info.createEl("p", {
+      cls: "entra-sync-muted",
+      text: isEnterprise
+        ? `Enterprise (Teams & SharePoint) • Tenant: ${this.plugin.settings.tenantId}`
+        : "Consumer (OneDrive)",
+    });
+
+    const actions = header.createDiv({ cls: "entra-sync-card-actions" });
+    const cardActionsSetting = new Setting(actions);
+    if (this.switchingVault && this.plugin.settings.activeVault) {
+      cardActionsSetting.addButton((btn) =>
+        btn.setButtonText("Cancel").onClick(() => {
+          this.switchingVault = false;
+          this.display();
+        })
+      );
+    }
+    cardActionsSetting.addButton((btn) =>
+      btn.setButtonText("Change account").onClick(async () => {
+        this.plugin.settings.tokens = undefined;
+        this.plugin.settings.activeVault = undefined;
+        this.plugin.settings.syncStore = { files: {} };
+        this.switchingVault = false;
+        this.wizardStep = 1;
+        this.availableVaults = [];
+        this.discoveredKey = "";
+        await this.plugin.saveSettings();
+        this.plugin.reinitClients();
+        this.display();
+      })
+    );
+
+    const tabs = containerEl.createDiv({ cls: "entra-sync-action-tabs" });
+    const tabDefs: Array<{
+      mode: WizardVaultMode;
+      title: string;
+      desc: string;
+    }> = [
+      {
+        mode: "discover",
+        title: "Discover vaults",
+        desc: isEnterprise
+          ? "Pick from followed SharePoint & Teams sites, shared folders, or OneDrive"
+          : "Pick from your OneDrive or folders shared with you",
+      },
+      {
+        mode: "url",
+        title: "Open vault by URL",
+        desc: isEnterprise
+          ? "Paste a SharePoint, Microsoft Teams, or OneDrive folder link"
+          : "Paste a OneDrive folder URL or sharing link",
+      },
+      {
+        mode: "create",
+        title: "Create vault",
+        desc: isEnterprise
+          ? "Create a new vault folder in SharePoint, Teams, or OneDrive"
+          : "Create a new vault folder in your OneDrive",
+      },
+    ];
+
+    for (const tabDef of tabDefs) {
+      const tabEl = tabs.createDiv({
+        cls: `entra-sync-action-tab${
+          this.vaultMode === tabDef.mode ? " is-active" : ""
+        }`,
+      });
+      tabEl.createDiv({ cls: "entra-sync-action-tab-title", text: tabDef.title });
+      tabEl.createDiv({ cls: "entra-sync-action-tab-desc", text: tabDef.desc });
+      tabEl.addEventListener("click", () => {
+        this.vaultMode = tabDef.mode;
+        this.display();
+      });
+    }
+
+    if (this.vaultMode === "discover") {
+      this.renderDiscoverPanel(containerEl, isEnterprise);
+    } else if (this.vaultMode === "url") {
+      this.renderOpenUrlPanel(containerEl, isEnterprise);
+    } else {
+      this.renderCreateVaultPanel(containerEl, isEnterprise);
+    }
+  }
+
+  private renderDiscoverPanel(
+    containerEl: HTMLElement,
+    isEnterprise: boolean
+  ): void {
+    const panel = containerEl.createDiv({ cls: "entra-sync-panel" });
+    const tokens = this.plugin.settings.tokens;
+    const expectedKey = `${this.plugin.settings.edition}:${
+      tokens?.userId || tokens?.userEmail || "signed-in"
+    }:${this.plugin.settings.oneDriveVaultsFolder}`;
+
+    if (this.discoveredKey !== expectedKey && !this.discoverLoading) {
+      void this.refreshDiscoveredVaults(false);
+    }
+
+    new Setting(panel)
+      .setName("Available vaults")
+      .setDesc(
+        isEnterprise
+          ? "Scans followed SharePoint & Teams sites, folders shared with you, and your OneDrive."
+          : "Scans your OneDrive vaults folder and folders shared with you."
+      )
+      .addButton((btn) =>
+        btn
+          .setButtonText(this.discoverLoading ? "Scanning..." : "Refresh")
+          .onClick(async () => {
+            await this.refreshDiscoveredVaults(true);
+          })
+      );
+
+    const listEl = panel.createDiv({ cls: "entra-sync-vault-list" });
+    if (this.discoverLoading) {
+      listEl.createEl("p", {
+        cls: "entra-sync-muted",
+        text: "Scanning Microsoft Graph for available vaults...",
+      });
+    } else if (this.availableVaults.length === 0) {
+      listEl.createEl("p", {
+        cls: "entra-sync-muted",
+        text: "No vaults found yet. Open a vault by URL or create a new vault.",
+      });
+    } else {
+      for (const vault of this.availableVaults) {
+        const match = vault.name.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+        const cleanTitle = match ? match[1] : vault.name;
+        const badgeLabel = match ? match[2] : "Remote vault";
+
+        const row = listEl.createDiv({ cls: "entra-sync-vault-row" });
+        const info = row.createDiv({ cls: "entra-sync-vault-info" });
+        const titleRow = info.createDiv({ cls: "entra-sync-vault-title" });
+        titleRow.createEl("span", { text: cleanTitle });
+        titleRow.createEl("span", {
+          cls: "entra-sync-source-badge",
+          text: badgeLabel,
+        });
+        if (vault.webUrl) {
+          info.createDiv({ cls: "entra-sync-vault-meta", text: vault.webUrl });
+        }
+
+        new Setting(row).addButton((btn) =>
+          btn
+            .setButtonText("Connect")
+            .setCta()
+            .onClick(async () => {
+              await this.connectToVault(vault);
+            })
+        );
+      }
+    }
+
+    // Inline OneDrive parent folder control (applicable to OneDrive scanning only)
+    const folderBar = panel.createDiv({ cls: "entra-sync-inline-folder" });
+    if (!this.editingOneDriveFolder) {
+      folderBar.createEl("span", {
+        text: `OneDrive parent folder: /${this.plugin.settings.oneDriveVaultsFolder}`,
+      });
+      new Setting(folderBar).addButton((btn) =>
+        btn.setButtonText("Change folder...").onClick(() => {
+          this.pendingOneDriveFolder = this.plugin.settings.oneDriveVaultsFolder;
+          this.editingOneDriveFolder = true;
+          this.display();
+        })
+      );
+    } else {
+      new Setting(folderBar)
+        .setName("OneDrive vaults folder")
+        .addText((text) =>
+          text
+            .setPlaceholder("ObsidianVaults")
+            .setValue(this.pendingOneDriveFolder)
+            .onChange((val) => {
+              this.pendingOneDriveFolder = val;
+            })
+        )
+        .addButton((btn) =>
+          btn
+            .setButtonText("Save and rescan")
+            .setCta()
+            .onClick(async () => {
+              this.plugin.settings.oneDriveVaultsFolder =
+                this.pendingOneDriveFolder.trim() || "ObsidianVaults";
+              this.editingOneDriveFolder = false;
+              this.discoveredKey = "";
+              await this.plugin.saveSettings();
+              await this.refreshDiscoveredVaults(true);
+            })
+        )
+        .addButton((btn) =>
+          btn.setButtonText("Cancel").onClick(() => {
+            this.editingOneDriveFolder = false;
+            this.display();
+          })
+        );
+    }
+  }
+
+  private renderOpenUrlPanel(
+    containerEl: HTMLElement,
+    isEnterprise: boolean
+  ): void {
+    const panel = containerEl.createDiv({ cls: "entra-sync-panel" });
+    new Setting(panel)
+      .setName("Vault folder URL")
+      .setDesc(
+        isEnterprise
+          ? "Paste a SharePoint library or folder URL, a Microsoft Teams channel URL (in Teams: Files -> Open in SharePoint -> copy browser URL), or a sharing link."
+          : "Paste a shared OneDrive folder link or OneDrive folder URL from your browser."
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder(
+            isEnterprise
+              ? "https://contoso.sharepoint.com/sites/Engineering/Shared%20Documents/Vault"
+              : "https://onedrive.live.com/... or https://1drv.ms/f/..."
+          )
+          .setValue(this.vaultUrlInput)
+          .onChange((val) => {
+            this.vaultUrlInput = val;
+          })
+      )
+      .addButton((btn) =>
+        btn
+          .setButtonText("Open vault")
+          .setCta()
+          .onClick(async () => {
+            if (!this.vaultUrlInput.trim()) {
+              new Notice("Paste a vault folder URL first.");
+              return;
+            }
+            try {
+              const resolved = await this.plugin.graph.resolveVaultFromUrl(
+                this.vaultUrlInput.trim()
+              );
+              await this.connectToVault(resolved);
+            } catch (err) {
+              new Notice(`Failed to open vault URL: ${String(err)}`);
+            }
+          })
+      );
+  }
+
+  private renderCreateVaultPanel(
+    containerEl: HTMLElement,
+    isEnterprise: boolean
+  ): void {
+    const panel = containerEl.createDiv({ cls: "entra-sync-panel" });
+
+    if (isEnterprise) {
+      const pills = panel.createDiv({ cls: "entra-sync-target-pills" });
+      const spPill = pills.createDiv({
+        cls: `entra-sync-target-pill${
+          this.createTarget === "sharepoint" ? " is-active" : ""
+        }`,
+        text: "SharePoint or Teams library",
+      });
+      spPill.addEventListener("click", () => {
+        this.createTarget = "sharepoint";
+        this.display();
+      });
+
+      const odPill = pills.createDiv({
+        cls: `entra-sync-target-pill${
+          this.createTarget === "onedrive" ? " is-active" : ""
+        }`,
+        text: "My OneDrive for Business",
+      });
+      odPill.addEventListener("click", () => {
+        this.createTarget = "onedrive";
+        this.display();
+      });
+    }
+
+    new Setting(panel)
+      .setName("Vault folder name")
+      .setDesc("Name of the new remote folder to create for this vault.")
+      .addText((text) =>
+        text
+          .setPlaceholder("e.g. ProductArchitecture")
+          .setValue(this.newVaultName)
+          .onChange((val) => {
+            this.newVaultName = val;
+          })
+      );
+
+    const useSharePointParent = isEnterprise && this.createTarget === "sharepoint";
+
+    if (useSharePointParent) {
+      new Setting(panel)
+        .setName("Parent SharePoint or Teams library URL")
         .setDesc(
-          "Paste a SharePoint or Microsoft Teams folder URL (including Forms/AllItems.aspx?id=...), sharing link, or OneDrive folder URL."
+          "Paste the SharePoint Document Library or parent folder URL where the new vault folder should be created."
         )
         .addText((text) =>
           text
             .setPlaceholder(
-              "https://contoso.sharepoint.com/sites/Team/Shared%20Documents/Vault"
+              "https://contoso.sharepoint.com/sites/Engineering/Shared%20Documents"
             )
-            .setValue(this.sharePointVaultUrl)
+            .setValue(this.createParentUrl)
             .onChange((val) => {
-              this.sharePointVaultUrl = val;
-            })
-        )
-        .addButton((btn) =>
-          btn
-            .setButtonText("Connect URL")
-            .setCta()
-            .onClick(async () => {
-              if (!this.sharePointVaultUrl.trim()) {
-                new Notice("Paste a SharePoint, Microsoft Teams, or OneDrive URL first.");
-                return;
-              }
-              try {
-                this.plugin.settings.includeSitesScope = true;
-                this.plugin.reinitClients();
-                const resolved = await this.plugin.graph.resolveVaultFromUrl(
-                  this.sharePointVaultUrl.trim()
-                );
-                this.plugin.settings.activeVault = resolved;
-                this.plugin.settings.syncStore = { files: {} };
-                await this.plugin.saveSettings();
-                this.plugin.reinitClients();
-                await this.plugin.triggerManualSync();
-                new Notice(`Connected to vault: ${resolved.name}`);
-                this.display();
-              } catch (err) {
-                new Notice(`Failed to connect vault URL: ${String(err)}`);
-              }
+              this.createParentUrl = val;
             })
         );
-
-      new Setting(containerEl)
-        .setName("Create or connect vault folder")
+    } else {
+      new Setting(panel)
+        .setName("Parent folder in OneDrive")
         .setDesc(
-          `Create or connect a vault folder inside '${this.plugin.settings.oneDriveVaultsFolder}' (or paste a full SharePoint/OneDrive URL)`
+          `Creates /${this.plugin.settings.oneDriveVaultsFolder}/${
+            this.newVaultName.trim() || "MyVault"
+          } in your OneDrive.`
         )
         .addText((text) =>
           text
-            .setPlaceholder("e.g. ProductArchitecture")
-            .setValue(this.newVaultName)
-            .onChange((val) => {
-              this.newVaultName = val;
-            })
-        )
-        .addButton((btn) =>
-          btn.setButtonText("Create and connect vault").onClick(async () => {
-            if (!this.newVaultName.trim()) {
-              new Notice("Enter a vault name first.");
-              return;
-            }
-            try {
-              const created = await this.plugin.graph.createOrGetVaultFolder(
-                this.newVaultName.trim(),
-                this.plugin.settings.oneDriveVaultsFolder
-              );
-              this.plugin.settings.activeVault = created;
-              this.plugin.settings.syncStore = { files: {} };
+            .setPlaceholder("ObsidianVaults")
+            .setValue(this.plugin.settings.oneDriveVaultsFolder)
+            .onChange(async (val) => {
+              this.plugin.settings.oneDriveVaultsFolder =
+                val.trim() || "ObsidianVaults";
               await this.plugin.saveSettings();
-              this.plugin.reinitClients();
-              await this.plugin.triggerManualSync();
-              new Notice(`Connected to vault: ${created.name}`);
-              this.display();
-            } catch (err) {
-              new Notice(`Failed to create vault: ${String(err)}`);
-            }
-          })
+            })
         );
-
-      if (this.plugin.settings.activeVault) {
-        const configDir = this.app.vault.configDir;
-        new Setting(containerEl)
-          .setName(`Sync vault configuration (${configDir})`)
-          .setDesc(
-            `Sync shared vault configuration, themes, CSS snippets, hotkeys, and plugins inside ${configDir}/ (automatically excludes your personal Entra ID tokens in data.json and personal workspace.json tab layout).`
-          )
-          .addToggle((toggle) =>
-            toggle
-              .setValue(this.plugin.settings.syncObsidianConfig)
-              .onChange(async (val) => {
-                this.plugin.settings.syncObsidianConfig = val;
-                await this.plugin.saveSettings();
-                if (val) {
-                  await this.plugin.triggerManualSync();
-                }
-              })
-          );
-
-        new Setting(containerEl)
-          .setName("Per-vault sharing (OneNote and SharePoint style)")
-          .setDesc("Invite colleagues by email and manage access permissions")
-          .addButton((btn) =>
-            btn.setButtonText("Share vault...").onClick(() => {
-              if (this.plugin.settings.activeVault) {
-                new ShareVaultModal(
-                  this.app,
-                  this.plugin.settings.activeVault,
-                  this.plugin.graph
-                ).open();
-              }
-            })
-          )
-          .addButton((btn) =>
-            btn.setButtonText("Active note version history").onClick(() => {
-              this.plugin.openActiveFileHistory();
-            })
-          );
-      }
     }
 
-    // Troubleshooting & sync logs section (always visible)
+    new Setting(panel).addButton((btn) =>
+      btn
+        .setButtonText("Create and connect vault")
+        .setCta()
+        .onClick(async () => {
+          if (!this.newVaultName.trim()) {
+            new Notice("Enter a vault folder name first.");
+            return;
+          }
+          if (useSharePointParent && !this.createParentUrl.trim()) {
+            new Notice(
+              "Paste the parent SharePoint or Microsoft Teams library URL first."
+            );
+            return;
+          }
+          try {
+            const parentArg = useSharePointParent
+              ? this.createParentUrl.trim()
+              : this.plugin.settings.oneDriveVaultsFolder;
+            const created = await this.plugin.graph.createOrGetVaultFolder(
+              this.newVaultName.trim(),
+              parentArg
+            );
+            await this.connectToVault(created);
+          } catch (err) {
+            new Notice(`Failed to create vault: ${String(err)}`);
+          }
+        })
+    );
+  }
+
+  private renderConnectedView(containerEl: HTMLElement): void {
+    const activeVault = this.plugin.settings.activeVault!;
+    const tokens = this.plugin.settings.tokens!;
+    const isEnterprise = this.plugin.settings.edition === "enterprise";
+
+    // Connected Vault Card
+    const vaultCard = containerEl.createDiv({ cls: "entra-sync-card" });
+    const vaultHeader = vaultCard.createDiv({ cls: "entra-sync-card-header" });
+    const vaultInfo = vaultHeader.createDiv();
+    vaultInfo.createDiv({
+      cls: "entra-sync-badge",
+      text: `✓ Connected vault: ${activeVault.name}`,
+    });
+    if (activeVault.webUrl) {
+      vaultInfo.createEl("p", {
+        cls: "entra-sync-muted",
+        text: activeVault.webUrl,
+      });
+    }
+
+    const vaultActions = vaultHeader.createDiv({ cls: "entra-sync-card-actions" });
+    new Setting(vaultActions)
+      .addButton((btn) =>
+        btn
+          .setButtonText("Sync now")
+          .setCta()
+          .onClick(async () => {
+            await this.plugin.triggerManualSync();
+          })
+      )
+      .addButton((btn) =>
+        btn.setButtonText("Share vault...").onClick(() => {
+          if (this.plugin.settings.activeVault) {
+            new ShareVaultModal(
+              this.app,
+              this.plugin.settings.activeVault,
+              this.plugin.graph
+            ).open();
+          }
+        })
+      )
+      .addButton((btn) =>
+        btn.setButtonText("Switch vault...").onClick(() => {
+          this.switchingVault = true;
+          this.wizardStep = 3;
+          this.discoveredKey = "";
+          this.display();
+        })
+      );
+
+    // Account Card
+    const userDisplay =
+      tokens.userDisplayName || tokens.userEmail || "Authenticated user";
+    const userEmail = tokens.userEmail || "";
+    const accountCard = containerEl.createDiv({ cls: "entra-sync-card" });
+    const accountHeader = accountCard.createDiv({ cls: "entra-sync-card-header" });
+    const accountInfo = accountHeader.createDiv();
+    accountInfo.createEl("div", {
+      cls: "entra-sync-choice-title",
+      text: `${userDisplay}${
+        userEmail && userEmail !== userDisplay ? ` (${userEmail})` : ""
+      }`,
+    });
+    accountInfo.createEl("p", {
+      cls: "entra-sync-muted",
+      text: isEnterprise
+        ? `Enterprise (Teams & SharePoint) • Tenant: ${this.plugin.settings.tenantId}`
+        : "Consumer (OneDrive)",
+    });
+
+    const accountActions = accountHeader.createDiv({
+      cls: "entra-sync-card-actions",
+    });
+    new Setting(accountActions).addButton((btn) =>
+      btn.setButtonText("Sign out").onClick(async () => {
+        this.plugin.settings.tokens = undefined;
+        this.plugin.settings.activeVault = undefined;
+        this.plugin.settings.syncStore = { files: {} };
+        this.switchingVault = false;
+        this.wizardStep = 1;
+        this.availableVaults = [];
+        this.discoveredKey = "";
+        await this.plugin.saveSettings();
+        this.plugin.reinitClients();
+        this.display();
+      })
+    );
+
+    // Sync Preferences
+    new Setting(containerEl).setName("Sync preferences").setHeading();
+
+    const configDir = this.app.vault.configDir;
     new Setting(containerEl)
-      .setName("Troubleshooting and sync logs")
-      .setHeading();
+      .setName(`Sync vault configuration (${configDir})`)
+      .setDesc(
+        `Sync shared vault configuration, themes, CSS snippets, hotkeys, and plugins inside ${configDir}/ (excludes your personal OAuth tokens in data.json and personal workspace.json tab layout).`
+      )
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.syncObsidianConfig)
+          .onChange(async (val) => {
+            this.plugin.settings.syncObsidianConfig = val;
+            await this.plugin.saveSettings();
+            if (val) {
+              await this.plugin.triggerManualSync();
+            }
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Note version history")
+      .setDesc(
+        "Browse and restore previous SharePoint or OneDrive revisions of the active note."
+      )
+      .addButton((btn) =>
+        btn.setButtonText("Active note version history").onClick(() => {
+          this.plugin.openActiveFileHistory();
+        })
+      );
+  }
+
+  private renderTroubleshootingSection(containerEl: HTMLElement): void {
+    const detailsEl = containerEl.createEl("details", {
+      cls: "entra-sync-details",
+    });
+    detailsEl.createEl("summary", {
+      text: "Troubleshooting and diagnostic logs",
+    });
+    const body = detailsEl.createDiv({ cls: "entra-sync-details-body" });
 
     if (this.plugin.settings.tokens) {
-      const expDate = new Date(this.plugin.settings.tokens.expiresAt).toLocaleString();
+      const expDate = new Date(
+        this.plugin.settings.tokens.expiresAt
+      ).toLocaleString();
       const hasRefresh = Boolean(this.plugin.settings.tokens.refreshToken);
-      new Setting(containerEl)
+      new Setting(body)
         .setName("OAuth2 token and delta diagnostics")
         .setDesc(
           `Access token expires: ${expDate} • Refresh token present: ${
@@ -805,22 +1332,25 @@ class EntraSyncSettingTab extends PluginSettingTab {
           btn.setButtonText("Reset delta and resync").onClick(async () => {
             this.plugin.settings.syncStore.deltaLink = undefined;
             await this.plugin.saveSettings();
-            this.plugin.logger.info("Cleared cached deltaLink; triggering full delta sync");
+            this.plugin.logger.info(
+              "Cleared cached deltaLink; triggering full delta sync"
+            );
             await this.plugin.triggerManualSync();
             this.display();
           })
         );
     }
 
-    const logBoxContainer = containerEl.createDiv({ cls: "entra-sync-card" });
-    const logPre = logBoxContainer.createEl("pre", {
+    const logPre = body.createEl("pre", {
       cls: "entra-sync-version-preview entra-sync-log-viewer",
       text: this.plugin.logger.formatText(),
     });
 
-    new Setting(containerEl)
+    new Setting(body)
       .setName("Diagnostic log actions")
-      .setDesc("Warnings and errors are also logged to the developer console with prefix [EntraSync]")
+      .setDesc(
+        "Warnings and errors are also logged to the developer console with prefix [EntraSync]."
+      )
       .addButton((btn) =>
         btn.setButtonText("Refresh logs").onClick(() => {
           logPre.setText(this.plugin.logger.formatText());

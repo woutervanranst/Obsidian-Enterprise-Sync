@@ -8,11 +8,8 @@ import { createMockGraphServer } from "./mock-graph-server.mjs";
 const REPO_ROOT = process.cwd();
 const WORK_DIR = "/tmp/obsidian-entra-docker-e2e";
 const GRAPH_PORT = 18765;
+const TENANT_ID = process.env.ENTRA_TENANT_ID || "woutervanranstgmail.onmicrosoft.com";
 const CLIENT_ID = process.env.ENTRA_CLIENT_ID || "ada87c12-a404-484b-a7dc-10c54beb2d7d";
-const ENTRA_PASS = process.env.ENTRA_TEST_PASSWORD;
-if (!ENTRA_PASS) {
-  throw new Error("Set ENTRA_TEST_PASSWORD environment variable before running test/docker-e2e.mjs");
-}
 
 function setupUserDir(userSlug) {
   const baseDir = path.join(WORK_DIR, userSlug);
@@ -34,16 +31,14 @@ function setupUserDir(userSlug) {
   fs.copyFileSync(path.join(REPO_ROOT, "manifest.json"), path.join(pluginDir, "manifest.json"));
   fs.copyFileSync(path.join(REPO_ROOT, "styles.css"), path.join(pluginDir, "styles.css"));
 
-  // Initial plugin data.json pointing to the SharePoint/OneDrive Graph endpoint on host.docker.internal
+  // Initial plugin data.json pointing to the SharePoint/OneDrive Graph & PKCE endpoint on host.docker.internal
   fs.writeFileSync(
     path.join(pluginDir, "data.json"),
     JSON.stringify(
       {
-        tenantId: "common",
-        clientId: CLIENT_ID,
         graphBaseUrl: `http://host.docker.internal:${GRAPH_PORT}/v1.0`,
+        authorityBaseUrl: `http://host.docker.internal:${GRAPH_PORT}`,
         oneDriveVaultsFolder: "Documents/Documents",
-        includeSitesScope: false,
         autoSyncIntervalSec: 60,
         syncStore: { files: {} },
       },
@@ -239,46 +234,81 @@ async function runDockerE2E() {
     ]);
     console.log("5. Connected Playwright to both Alice's and Bob's live Obsidian vaults!");
 
-    // Open Settings -> Enterprise Sync tab in Alice's Obsidian UI and sign in via EntraCredentialsModal
-    console.log("6. Signing Alice into Entra ID via Obsidian UI modal...");
-    await alicePage.evaluate(() => {
-      if (window.app.setting.isOpen) {
-        window.app.setting.close();
-      }
-      window.app.setting.shouldUsePopout = () => false;
-      window.app.setting.open();
-      window.app.setting.openTabById("entra-sharepoint-sync");
-    });
-    await alicePage.locator("button", { hasText: "Sign in (Entra Credentials)" }).click();
-    await alicePage.locator('input[placeholder="user@yourdomain.onmicrosoft.com"]').fill(
-      "alice@woutervanranstgmail.onmicrosoft.com"
-    );
-    await alicePage.locator('input[type="password"]').fill(ENTRA_PASS);
-    await alicePage.getByRole("button", { name: "Sign In", exact: true }).click();
+    const signInViaWizard = async (page, userProfile) => {
+      await page.evaluate(() => {
+        window.__capturedAuthUrl = "";
+        window.open = (url) => {
+          window.__capturedAuthUrl = String(url);
+          return null;
+        };
+        if (window.app.setting.isOpen) {
+          window.app.setting.close();
+        }
+        window.app.setting.shouldUsePopout = () => false;
+        window.app.setting.open();
+        window.app.setting.openTabById("entra-sharepoint-sync");
+      });
 
-    // Wait for the Enterprise Sync Active badge in Alice's Settings UI
+      // Step 1: Select Enterprise (Teams & SharePoint) -> Continue
+      await page.locator(".entra-sync-choice-card", { hasText: "Enterprise (Teams & SharePoint)" }).click();
+      await page.locator("button", { hasText: "Continue" }).click();
+
+      // Step 2: Fill Directory (tenant) ID & Application (client) ID -> Sign in with browser
+      const inputs = page.locator(".setting-item input[type='text']");
+      await inputs.nth(0).fill(TENANT_ID);
+      await inputs.nth(1).fill(CLIENT_ID);
+      await page.locator("button", { hasText: "Sign in with browser" }).click();
+
+      const authUrl = await page.evaluate(() => window.__capturedAuthUrl);
+      assert.ok(authUrl, "Browser PKCE authorize URL must be generated");
+      const issued = mockGraph.issueAuthCode(authUrl, userProfile);
+
+      // Deliver OAuth2 PKCE redirect callback to Obsidian protocol handler
+      await page.evaluate(async ({ code, state }) => {
+        const handler = window.app.workspace?.protocolHandlers?.get?.("entra-sync-auth");
+        if (handler) {
+          await handler({ action: "entra-sync-auth", code, state });
+        } else {
+          const plugin = window.app.plugins.getPlugin("entra-sharepoint-sync");
+          plugin.settings.tokens = await plugin.auth.handleCallback(code);
+          await plugin.saveSettings();
+          plugin.reinitClients();
+          plugin.settingTab?.onAuthCompleted();
+        }
+      }, issued);
+    };
+
+    console.log("6. Signing Alice into Entra ID via Setup Wizard (PKCE)...");
+    await signInViaWizard(alicePage, {
+      id: "63a6c51d-b9c7-43cf-8ba0-ce82bb6eb2e6",
+      displayName: "Alice Peeters",
+      email: "alice@woutervanranstgmail.onmicrosoft.com",
+    });
+
+    // Wait for Step 3 signed-in badge in Alice's Settings UI
     await alicePage.locator(".entra-sync-badge").waitFor({ state: "visible", timeout: 20000 });
     const aliceBadgeText = await alicePage.locator(".entra-sync-card").first().innerText();
     console.log("   Alice UI Status Card:", aliceBadgeText.replace(/\n+/g, " | "));
-    assert.ok(aliceBadgeText.includes("Obsidian Enterprise Sync Active"));
     assert.ok(aliceBadgeText.includes("Alice Peeters"));
 
-    // Alice creates and connects the shared vault "ProductSpecs" via the Settings UI
-    console.log("7. Alice creating & connecting shared vault 'ProductSpecs' via Obsidian UI...");
+    // Alice creates and connects the shared vault "ProductSpecs" in OneDrive for Business via Step 3 Create vault
+    console.log("7. Alice creating & connecting shared vault 'ProductSpecs' via Setup Wizard Step 3...");
+    await alicePage.locator(".entra-sync-action-tab", { hasText: "Create vault" }).click();
+    await alicePage.locator(".entra-sync-target-pill", { hasText: "My OneDrive for Business" }).click();
     await alicePage.locator('input[placeholder="e.g. ProductArchitecture"]').fill("ProductSpecs");
-    await alicePage.locator("button", { hasText: "Create & Connect Vault" }).click();
-    await alicePage.locator("button", { hasText: "Share Vault..." }).waitFor({
+    await alicePage.locator("button", { hasText: "Create and connect vault" }).click();
+    await alicePage.locator("button", { hasText: "Share vault..." }).waitFor({
       state: "visible",
       timeout: 15000,
     });
 
     // Alice invites Bob via the ShareVaultModal UI
     console.log("8. Alice inviting Bob (bob@woutervanranstgmail.onmicrosoft.com) via ShareVaultModal UI...");
-    await alicePage.locator("button", { hasText: "Share Vault..." }).click();
+    await alicePage.locator("button", { hasText: "Share vault..." }).click();
     await alicePage.locator('input[placeholder="colleague@company.com"]').fill(
       "bob@woutervanranstgmail.onmicrosoft.com"
     );
-    await alicePage.locator(".entra-sync-share-modal button", { hasText: "Invite to Vault" }).click();
+    await alicePage.locator(".entra-sync-share-modal button", { hasText: "Send invite" }).click();
     await alicePage
       .locator(".entra-sync-collaborator-row", {
         hasText: "bob@woutervanranstgmail.onmicrosoft.com",
@@ -319,40 +349,24 @@ async function runDockerE2E() {
     }, initialDoc);
 
     // Now drive Bob's Obsidian container UI!
-    console.log("10. Signing Bob into Entra ID via Bob's Obsidian UI modal...");
-    await bobPage.evaluate(() => {
-      if (window.app.setting.isOpen) {
-        window.app.setting.close();
-      }
-      window.app.setting.shouldUsePopout = () => false;
-      window.app.setting.open();
-      window.app.setting.openTabById("entra-sharepoint-sync");
+    console.log("10. Signing Bob into Entra ID via Setup Wizard (PKCE)...");
+    await signInViaWizard(bobPage, {
+      id: "3be7d8b4-7e90-4da0-9499-619b3da4e2cf",
+      displayName: "Bob Janssens",
+      email: "bob@woutervanranstgmail.onmicrosoft.com",
     });
-    await bobPage.locator("button", { hasText: "Sign in (Entra Credentials)" }).click();
-    await bobPage.locator('input[placeholder="user@yourdomain.onmicrosoft.com"]').fill(
-      "bob@woutervanranstgmail.onmicrosoft.com"
-    );
-    await bobPage.locator('input[type="password"]').fill(ENTRA_PASS);
-    await bobPage.getByRole("button", { name: "Sign In", exact: true }).click();
 
     await bobPage.locator(".entra-sync-badge").waitFor({ state: "visible", timeout: 20000 });
     const bobBadgeText = await bobPage.locator(".entra-sync-card").first().innerText();
     console.log("   Bob UI Status Card:", bobBadgeText.replace(/\n+/g, " | "));
     assert.ok(bobBadgeText.includes("Bob Janssens"));
 
-    // Bob clicks "Discover Vaults" and selects "ProductSpecs (Shared with me)"
-    console.log("11. Bob discovering shared vaults and connecting to 'ProductSpecs (Shared with me)'...");
-    await bobPage.locator("button", { hasText: "Discover Vaults" }).click();
-    const dropdown = bobPage.locator(".setting-item select").first();
-    await dropdown.waitFor({ state: "visible", timeout: 10000 });
-    const options = await dropdown.locator("option").allInnerTexts();
-    console.log("   Bob discovered options:", options);
-    assert.ok(options.some((o) => o.includes("ProductSpecs (Shared with me)")));
-
-    const targetVal = await dropdown
-      .locator("option", { hasText: "ProductSpecs (Shared with me)" })
-      .getAttribute("value");
-    await dropdown.selectOption(targetVal);
+    // Bob is automatically on Step 3 "Discover vaults" and clicks Connect on "ProductSpecs"
+    console.log("11. Bob discovering shared vaults and connecting to 'ProductSpecs'...");
+    const productSpecsRow = bobPage.locator(".entra-sync-vault-row", { hasText: "ProductSpecs" });
+    await productSpecsRow.waitFor({ state: "visible", timeout: 10000 });
+    await productSpecsRow.locator("button", { hasText: "Connect" }).click();
+    await bobPage.locator("button", { hasText: "Sync now" }).waitFor({ state: "visible", timeout: 10000 });
     await bobPage.keyboard.press("Escape"); // close settings
 
     // Verify Bob's Obsidian vault now has SharedDesign.md!

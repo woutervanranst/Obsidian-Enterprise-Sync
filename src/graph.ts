@@ -345,6 +345,26 @@ export class GraphVaultClient {
               rootItemId: "root",
               webUrl: driveJson.webUrl ?? "",
             });
+
+            const childrenRes = await this.graphRequest({
+              url: `${base}/drives/${driveJson.id}/root/children`,
+              throwOnError: false,
+            });
+            if (childrenRes.status === 200) {
+              const childrenJson = childrenRes.json as
+                | GraphListResponse<GraphDriveItemNode>
+                | undefined;
+              for (const child of childrenJson?.value ?? []) {
+                if (child.folder) {
+                  addVault({
+                    name: `${child.name} (SharePoint: ${site.displayName})`,
+                    driveId: driveJson.id,
+                    rootItemId: child.id,
+                    webUrl: child.webUrl ?? "",
+                  });
+                }
+              }
+            }
           }
         }
       }
@@ -369,11 +389,13 @@ export class GraphVaultClient {
       const baseTarget = await this.resolveVaultFromUrl(parentFolder.trim());
       const cleanSub = vaultName.replace(/^\/+|\/+$/g, "");
       if (!cleanSub) return baseTarget;
+      const suffixMatch = baseTarget.name.match(/\(([^)]+)\)\s*$/);
+      const labelSuffix = suffixMatch ? suffixMatch[1] : "SharePoint";
       return this.ensureFolderInDrive(
         baseTarget.driveId,
         cleanSub.split("/").filter(Boolean),
         baseTarget.rootItemId,
-        "SharePoint"
+        labelSuffix
       );
     }
 
@@ -686,9 +708,23 @@ export class GraphVaultClient {
         lastItem = getRes.json as GraphDriveItemNode;
         currentParentId = lastItem.id;
       } else {
-        throw new Error(
-          `Failed to resolve or create subfolder '${segment}' in drive ${driveId} (${createRes.status})`
+        const listRes = await this.graphRequest({
+          url: childrenUrl,
+          throwOnError: false,
+        });
+        const children =
+          (listRes.json as GraphListResponse<GraphDriveItemNode> | undefined)?.value ?? [];
+        const existingChild = children.find(
+          (c) => c.folder && c.name.toLowerCase() === segment.toLowerCase()
         );
+        if (existingChild) {
+          lastItem = existingChild;
+          currentParentId = existingChild.id;
+        } else {
+          throw new Error(
+            `Failed to resolve or create subfolder '${segment}' in drive ${driveId} (${createRes.status})`
+          );
+        }
       }
     }
 

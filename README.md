@@ -23,26 +23,34 @@ Install directly from the official Obsidian Community Plugins directory:
 2. Select **Browse** and search for **OneDrive + Enterprise SharePoint + Teams Sync**.
 3. Click **Install**, then **Enable**.
 
-## Consumer
+## Setup Wizard Overview
 
-### OneDrive
+Open **Settings → OneDrive + Enterprise SharePoint + Teams Sync** to launch the guided 3-step onboarding wizard:
+
+1. **Step 1 — Account type**: Choose **Consumer (OneDrive)** or **Enterprise (Teams & SharePoint)**.
+2. **Step 2 — Sign in**: Authenticate in your system browser via OAuth 2.0 + PKCE (`obsidian://entra-sync-auth`). No passwords or credentials are ever entered inside Obsidian.
+3. **Step 3 — Connect vault**: Choose **Discover vaults**, **Open vault by URL**, or **Create vault**. Once connected, the settings page switches to a clean **Connected Vault** view.
+
+## Consumer (OneDrive)
 
 You can use a personal Microsoft account (`outlook.com`, `live.com`, `hotmail.com`) to sync vaults across your devices or collaborate on a shared OneDrive folder with friends and colleagues.
 
 1. Open **Settings → OneDrive + Enterprise SharePoint + Teams Sync**.
-2. Leave **Tenant ID** set to `common`.
-3. Optional: Set **OneDrive vaults folder path** to the parent folder in your OneDrive where your vaults live (default: `ObsidianVaults`, or e.g. `Documents/Vaults`).
-4. Click **Sign in (browser PKCE)** and sign in with your personal Microsoft account.
-5. Under **Shared vault and collaboration**:
-   - **Create a new vault**: Enter a folder name in **Create or connect vault folder** and click **Create and connect vault**.
-   - **Connect an existing or shared vault**: Click **Discover vaults** and pick a folder from your OneDrive or **Shared with me** in the dropdown.
-6. To invite collaborators, click **Share vault...**, enter their email addresses, choose **Can edit (read and write)** or **View only (read)**, and click **Send invite**.
+2. **Step 1 — Account type**: Select **Consumer (OneDrive)** and click **Continue**.
+3. **Step 2 — Sign in**: Click **Sign in with browser** and sign in with your personal Microsoft account (`User.Read`, `Files.ReadWrite.All`, and `offline_access`).
+4. **Step 3 — Connect vault**:
+   - **Discover vaults**: Automatically lists vaults inside your OneDrive folder (default `/ObsidianVaults`—click **Change folder...** to customize, e.g. `Documents/Vaults`) as well as folders **Shared with me**, then click **Connect**.
+   - **Open vault by URL**: Paste a shared OneDrive link (`https://1drv.ms/...` or `https://onedrive.live.com/...`) and click **Open vault**.
+   - **Create vault**: Enter a **Vault folder name** (and optional **Parent folder in OneDrive**, default `ObsidianVaults`) and click **Create and connect vault**.
+5. To invite collaborators, click **Share vault...** on the connected vault card, enter their email addresses, choose **Can edit (read and write)** or **View only (read)**, and click **Send invite**.
 
-## Enterprise
+## Enterprise (Teams & SharePoint)
 
 ### One-Time Admin Setup
 
-To use the plugin with corporate **Microsoft Entra ID** accounts, SharePoint Online, and Microsoft Teams, a Global or Cloud Application Administrator must register a public client application in Microsoft Entra ID once for your organization.
+To use the plugin with corporate **Microsoft Entra ID** accounts, SharePoint Online, Microsoft Teams, and OneDrive for Business, a Global or Cloud Application Administrator must register a public client application in Microsoft Entra ID once for your organization.
+
+> Tip: You can also view and copy this exact request directly from **Step 2** of the plugin's setup wizard (**Need these IDs? View one-time IT admin setup request**).
 
 Send the following request to your IT / Entra ID administrator:
 
@@ -50,7 +58,7 @@ Send the following request to your IT / Entra ID administrator:
 >
 > Hi [Name],
 >
-> We would like to use the **OneDrive + Enterprise SharePoint + Teams Sync** plugin in Obsidian to collaborate on team documentation stored in our SharePoint Online / OneDrive environment. The plugin connects directly to Microsoft Graph using OAuth 2.0 Authorization Code Flow with PKCE (public client, no client secret).
+> We would like to use the **OneDrive + Enterprise SharePoint + Teams Sync** plugin in Obsidian to collaborate on team documentation stored in our SharePoint Online, Microsoft Teams, and OneDrive environment. The plugin connects directly to Microsoft Graph using OAuth 2.0 Authorization Code Flow with PKCE (public client, no client secret).
 >
 > Could you create an **App Registration** in **Microsoft Entra ID** with the following settings?
 >
@@ -59,35 +67,28 @@ Send the following request to your IT / Entra ID administrator:
 > 3. **Authentication (Platform configuration):**
 >    - Platform: **Mobile and desktop applications**
 >    - Custom Redirect URI: `obsidian://entra-sync-auth`
->    - Enable **Allow public client flows**: *Yes* (optional, only needed if using device-code or direct credential flows)
 > 4. **API permissions (Microsoft Graph — Delegated permissions):**
 >    - `User.Read` (display signed-in user profile and version authors)
 >    - `Files.ReadWrite.All` (sync shared OneDrive and SharePoint vault files and version history)
->    - `Sites.ReadWrite.All` (discover and sync followed SharePoint sites and Teams document libraries)
+>    - `Sites.ReadWrite.All` (discover and sync followed SharePoint sites and Microsoft Teams document libraries)
 >    - `offline_access` (refresh tokens so users stay signed in)
 >    - Please click **Grant admin consent for [Organization]** for these delegated permissions.
 >
 > Once created, please share back:
-> - **Application (client) ID**
 > - **Directory (tenant) ID**
+> - **Application (client) ID**
 
-Once you receive those two IDs from your admin, paste them into **Tenant ID** and **Entra app client ID** in the plugin settings and click **Sign in (browser PKCE)**.
+### Signing In & Connecting an Enterprise Vault
 
-### SharePoint Configuration
-
-You can use any SharePoint Site Document Library or subfolder inside it as a collaborative team vault:
-
-1. In your browser, open the target SharePoint folder (or Document Library) and copy its URL from the address bar (for example `https://contoso.sharepoint.com/sites/Engineering/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2FEngineering%2FShared%20Documents%2FObsidianVault...` or a direct folder link).
-2. In Obsidian, open **Settings → OneDrive + Enterprise SharePoint + Teams Sync** and sign in with your corporate Entra ID account.
-3. Paste the URL into **Connect SharePoint, Microsoft Teams, or OneDrive URL** and click **Connect URL** (or click **Discover vaults** to pick from your followed SharePoint sites and shared folders).
-4. Click **Sync now** (or let automatic background sync run).
-
-### Microsoft Teams Configuration
-
-Every Microsoft Teams team and standard channel is backed by a SharePoint Online site and Document Library (`Files` tab in Teams):
-
-1. In Microsoft Teams, open the channel where you want to store the team's Obsidian vault, go to the **Files** tab, and click **Open in SharePoint**.
-2. Open or create your vault folder in SharePoint, copy the browser URL, and paste it into **Connect SharePoint, Microsoft Teams, or OneDrive URL** in Obsidian settings (or share/follow the folder and click **Discover vaults**).
+1. Open **Settings → OneDrive + Enterprise SharePoint + Teams Sync**.
+2. **Step 1 — Account type**: Select **Enterprise (Teams & SharePoint)** and click **Continue**. SharePoint and Microsoft Teams access (`Sites.ReadWrite.All`) is automatically enabled for Enterprise accounts.
+3. **Step 2 — Sign in**: Enter your organization's **Directory (tenant) ID** and **Application (client) ID**, then click **Sign in with browser**.
+4. **Step 3 — Connect vault**:
+   - **Discover vaults**: Browse vaults across your followed SharePoint & Microsoft Teams sites, **Shared with me** folders, and your **OneDrive for Business**, then click **Connect**.
+   - **Open vault by URL**:
+     - **SharePoint Online**: Open the target SharePoint Document Library or subfolder in your browser, copy the address bar URL (including `Forms/AllItems.aspx?id=...` or a direct folder link), paste it into **Vault folder URL**, and click **Open vault**.
+     - **Microsoft Teams**: Open your Teams channel → **Files** tab → click **Open in SharePoint**, copy the browser URL, paste it into **Vault folder URL**, and click **Open vault**.
+   - **Create vault**: Choose **SharePoint or Teams library** (paste the parent library/channel URL and enter a new **Vault folder name**) or **My OneDrive for Business** (choose a parent folder in OneDrive and enter a **Vault folder name**), then click **Create and connect vault**.
 
 ## Features
 
@@ -108,7 +109,7 @@ Every Microsoft Teams team and standard channel is backed by a SharePoint Online
 
 If you encounter a sync issue or authentication error:
 
-1. Open **Settings → OneDrive + Enterprise SharePoint + Teams Sync** and scroll down to **Troubleshooting and sync logs** (or run the command **View sync diagnostic logs** from the Command Palette).
+1. Open **Settings → OneDrive + Enterprise SharePoint + Teams Sync** and expand **Troubleshooting and diagnostic logs** at the bottom of the page (or run the command **View sync diagnostic logs** from the Command Palette).
 2. Click **Force token refresh** to verify your OAuth2 refresh token and obtain a fresh access token.
 3. Click **Reset delta and resync** if a folder was reorganized externally in SharePoint/OneDrive and you want to force a full delta reconciliation.
 4. Use **Copy logs** to copy sanitized diagnostic entries (tokens and signatures are automatically redacted) when reporting issues.
